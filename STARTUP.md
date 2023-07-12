@@ -8,7 +8,7 @@ On github
 Go to github.
 Log in to your account.
 Click the new repository button in the top-right.
-Type in the repository name, which is: ENIGMA_data
+Type in the repository name, which is: brainage_proj
 Decide whether you want the repository to be public or private.
 Do _NOT_ select "initialize this repository with a readme"
 Click create repository
@@ -23,5 +23,5 @@ git init
 git add .
 git commit -m "first commit!"
 git remote add origin https://github.com/sunclara/ENIGMA_data
-git push -u origin master
+git push -u origin master # push to main instead
 ```
