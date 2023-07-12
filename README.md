@@ -1,7 +1,7 @@
-ENIGMA
+Brain Age Project
 ===============================================
 
-freesurfer volume inputs to test using ENIGMA brainage calculator
+Analysis on brain age outputs from ENIGMA and BrainChart
 
 Created by Clara Sun clarafansun@gmail.com
 
