@@ -22,6 +22,6 @@ Type:
 git init
 git add .
 git commit -m "first commit!"
-git remote add origin https://github.com/sunclara/ENIGMA_data
+git remote add origin https://github.com/sunclara/brainage_proj
 git push -u origin master # push to main instead
 ```
