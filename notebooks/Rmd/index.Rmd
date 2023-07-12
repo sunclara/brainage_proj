@@ -1,0 +1,13 @@
+---
+title: "ENIGMA analyses"
+author: "Clara Sun"
+date: "`r Sys.Date()`"
+output: bookdown::gitbook
+github-repo: https://github.com/sunclara/ENIGMA_data
+description: "freesurfer volume inputs to test using ENIGMA brainage calculator"
+fontsize: 10pt
+monofontoptions: "Scale=0.5"
+classoption: landscape
+---
+
+# The index page

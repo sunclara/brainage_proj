@@ -1,0 +1,192 @@
+---
+title: "02_formatting_data_male"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+#### LOAD LIBRARIES ####
+library(tidyverse)
+library(dplyr)
+```
+```{r}
+#### LOAD DATA ####
+
+# load csv files 
+
+# Left and right volumes
+LandRvolumes_original <- read_csv("/external/rprshnas01/tigrlab/scratch/csun/ENIGMA/ENIGMA_male/LandRvolumes.csv")
+
+# input a margin value where: 1 = rows, 2 = columns
+# row_sub = apply(LandRvolumes_original, 1, function(row) all(row !=0)) 
+# subset the data frame to include all rows other than those containing values of 0
+# LandRvolumes_new <- LandRvolumes_original[row_sub,]
+# this is not working - is it necessary to convert the "dbl" type to "int" first"
+# LandRvolumes_new
+
+# Cortical thickness
+CorticalMeasuresENIGMA_ThickAvg <- read_csv("/external/rprshnas01/tigrlab/scratch/csun/ENIGMA/ENIGMA_male/CorticalMeasuresENIGMA_ThickAvg.csv")
+CorticalMeasuresENIGMA_ThickAvg
+
+# Cortical surface area
+CorticalMeasuresENIGMA_SurfAvg <- read_csv("/external/rprshnas01/tigrlab/scratch/csun/ENIGMA/ENIGMA_male/CorticalMeasuresENIGMA_SurfAvg.csv")
+CorticalMeasuresENIGMA_SurfAvg
+
+##### Remove any rows with 0 (null) values for features #####
+LandRvolumes_new <- LandRvolumes_original %>%
+  filter(!grepl("^0$", LLatVent ))
+
+LandRvolumes_new
+
+# Try a different method to remove rows with "0" values from ThickAvg data frame
+
+# this method is more general
+
+ThickAvg_new <- CorticalMeasuresENIGMA_ThickAvg %>%
+  # use filter_if instead of filter_all to filter only by a subset of variables (columns)
+  filter_if(is.numeric, any_vars(. != 0))
+ThickAvg_new
+
+# Remove rows with "0" values from SurfAvg data frame
+SurfAvg_new <- CorticalMeasuresENIGMA_SurfAvg %>%
+  # use filter_if instead of filter_all to filter only by a subset of variables (columns), in this case numeric <dbl> variables
+  filter_if(is.numeric, any_vars(. != 0.000))
+SurfAvg_new
+```
+```{r}
+
+##### Modify LandRvolumes.csv #####
+
+# work with the filtered data frame
+LandRvolumes_merged <- LandRvolumes_new %>% 
+  # use the pivot_longer function to transpose x and y variables
+  pivot_longer(LLatVent:Raccumb, names_to = "ROI", values_to = "Volume") %>%
+  # use the mutate() function to create columns with new names
+  mutate(hemi=str_sub(ROI, 1, 1), 
+         roi=str_sub(ROI, 2,-1)) %>%
+  # group_by() EXPLAIN 
+  group_by(participant, roi) %>%
+  # compute the mean of L and R volumes
+  summarise(M=mean(Volume)) %>%
+  # transform back to wide format with features as column headings
+  pivot_wider(id_cols = participant, names_from = roi, values_from=M, names_prefix = "M") %>%
+  # rename the columns to match examples in supplementary table 5 (Han et al., 2020)
+  # https://www.datanovia.com/en/lessons/rename-data-frame-columns-in-r/
+  rename(Mvent = MLatVent)
+
+# Re-order the columns of LandRvolumes_merged to match example by Han et al., 2020 
+col_order_volumes <- c("participant", "Mvent", "Mthal", "Mcaud", "Mput", "Mpal", "Mhippo", "Mamyg", "Maccumb")
+
+# Create a reordered data frame 
+Mvolumes <- LandRvolumes_merged[, col_order_volumes]
+Mvolumes
+```
+```{r}
+##### Modify CorticalMeasuresENIGMA_ThickAvg.csv #####
+# Average the left and right cortical thickness values
+
+MThickAvg <- ThickAvg_new %>% 
+  # use the pivot_longer function to transpose x and y variables
+  pivot_longer(L_bankssts_thickavg:R_parahippocampal_thickavg, names_to = "ROI", values_to = "ThickAvg") %>%
+  # use the mutate() function to create columns with new names
+  mutate(hemi=str_sub(ROI, 1, 1), 
+         roi=str_sub(ROI, 2,-1)) %>%
+  group_by(participant, roi) %>%
+  # compute the mean of L and R cortical thickness
+  summarise(M=mean(ThickAvg)) %>%
+  # transform back to wide format with features as column headings
+  pivot_wider(id_cols = participant, names_from = roi,
+              # watch out for the names_prefix, in this case do not need to add another _ after M
+              values_from=M, names_prefix = "M") %>%
+  # Re-order the columns of ThickAvg to match example by Han et al., 2020 
+  relocate(M_insula_thickavg, .after = M_transversetemporal_thickavg) %>%
+  relocate(M_frontalpole_thickavg, .before=M_temporalpole_thickavg)
+
+MThickAvg
+
+```
+```{r}
+##### Modify CorticalMeasuresENIGMASurfAvg.csv #####
+
+# Mean cortical surface area
+
+MSurfAvg <- SurfAvg_new %>% 
+  # use the pivot_longer function to transpose x and y variables
+  pivot_longer(L_bankssts_surfavg:R_insula_surfavg, names_to = "ROI", values_to = "SurfAvg") %>%
+  # use the mutate() function to create columns with new names
+  mutate(hemi=str_sub(ROI, 1, 1), 
+         roi=str_sub(ROI, 2,-1)) %>%
+  # group_by() EXPLAIN 
+  group_by(participant, roi) %>%
+  # compute the mean of L and R cortical thickness
+  summarise(M=mean(SurfAvg)) %>%
+  # transform back to wide format with features as column headings
+  pivot_wider(id_cols = participant, names_from = roi,
+              # watch out for the names_prefix, in this case do not need to add another _ after M
+              values_from=M, names_prefix = "M") %>%
+ # Re-order the columns of SurfAvg to match example by Han et al., 2020 
+  relocate(M_insula_surfavg, .after = M_transversetemporal_surfavg) %>%
+  relocate(M_frontalpole_surfavg, .before=M_temporalpole_surfavg)
+
+MSurfAvg
+```
+```{r}
+##### Merging male data frames #####
+# Source: https://www.geeksforgeeks.org/merge-dataframes-by-column-names-in-r/
+
+# merge the Mvolumes, MThickAvg, and MSurfAvg data frames
+
+# Merge the two data frames first and specify the column in common using by
+male_merged_df1 <- merge(Mvolumes, MThickAvg, by="participant")
+male_merged_df1
+
+# Merge the third data frame with the data frame merged above
+male_merged_df2 <- merge(male_merged_df1, MSurfAvg, by="participant")
+male_merged_df2
+```
+```{r}
+##### add the ICV column back in and remove participant #####
+
+myvars <- c("participant", "ICV")
+ICV_df <- LandRvolumes_original[myvars] %>% 
+  # remove any rows with values of "0" from ICV df
+  filter_if(is.numeric, any_vars(. != 0))
+
+ICV_df
+
+# merge ICV data frame with the merged data frame from above containing volumes, cortical thickness, and surface area
+
+male_merged <- merge(ICV_df, male_merged_df2, by="participant")
+
+# create a new df that excludes the participant column
+# source: https://www.statmethods.net/management/subset.html
+male_no_ID <- male_merged[c(-1)]
+male_no_ID
+
+```
+```{r}
+##### Export final data frame to csv #####
+
+# make sure the file path provided includes folders that actually exist (ENIGMA vs ENIGMA_data)
+
+write.csv(male_no_ID, file ='/external/rprshnas01/tigrlab/scratch/csun/ENIGMA_data/data/processed/male_averaged.csv', row.names=FALSE)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

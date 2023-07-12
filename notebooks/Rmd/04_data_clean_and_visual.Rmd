@@ -1,0 +1,116 @@
+---
+title: "Statistical Analyses on ENIGMA Age Prediction"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r Load libraries}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+
+```
+
+## Load data
+```{r Load ENIGMA processed data}
+
+# Load ENIGMA csv that contains age predictions, sex, dx, chronological age
+enigma_final <- read_csv("/external/rprshnas01/tigrlab/scratch/csun/ENIGMA_data/data/processed/enigma_final.csv")
+
+# Create condensed version of data frame containing only demographic variables
+demo_vars <- c("participant", "sex", "dx", "Age", "age_prediction") # list of demographic variables
+enigma_demo <- enigma_final[demo_vars]
+enigma_demo
+
+```
+## Calculate brain age gap
+```{r Calculating brain age gap}
+
+# Brain Age Gap = BAG = "age_prediction" - "Age"
+# BAG refers to the difference between the age of individuals predicted by ENIGMA (brain age or "age_prediction") and their chronological age
+
+# First calculate BAG for all participants and append BAG as a new column to the modified enigma data frame
+
+# use the mutate() function to create a new variable BAG for "brain age gap"
+enigma_BAG <- enigma_demo %>% mutate(BAG = age_prediction - Age) 
+enigma_BAG
+
+# check if any participants have 'NA' values for 'Age'
+na_count <- sum(is.na(enigma_demo$Age))
+na_count
+
+na_count2 <- sum(is.na(enigma_final$Age))
+na_count2
+
+# check if any participants have 'NA' values for 'dx' (diagnosis)
+na_count_dx <- sum(is.na(enigma_final$dx))
+na_count_dx
+
+# create a new data frame that excludes participants that are missing dx information
+enigma_dx <- enigma_BAG[complete.cases(enigma_BAG$dx), ]
+enigma_dx
+
+# check if any participants have 'NA' values for 'sex' 
+na_count_sex <- sum(is.na(enigma_final$sex))
+na_count_sex
+
+```
+## Data visualization
+```{r Try plotting data}
+# plot BAG vs brain age 
+ggplot(data = enigma_BAG) +
+       geom_point(mapping = aes(x = Age, y = BAG))
+
+# plot brain age gap (BAG) and sex
+ggplot(data = enigma_BAG) +
+       geom_point(mapping = aes(x = sex, y = BAG))
+
+# Compare BAG between PSS and Non-PSS participants
+dx_plot <- ggplot(data = enigma_BAG) +
+       geom_point(mapping = aes(x = dx, y = BAG))
+dx_plot
+
+# Compare BAG and dx using a box plot
+ggplot(data = enigma_BAG) +
+       geom_boxplot(mapping = aes(x = dx, y = BAG)) + coord_flip()
+
+#### Comparing PSS and Non-PSS ####
+
+# Brain Age Gap (BAG) boxplot
+ggplot(data = enigma_dx) +
+       geom_boxplot(mapping = aes(x = dx, y = BAG)) + coord_flip()
+
+# brain age ("age_prediction") boxplot
+ggplot(data = enigma_dx) +
+       geom_boxplot(mapping = aes(x = dx, y = age_prediction)) + coord_flip()
+
+# brain age and BAG scatter plot
+ggplot(data = enigma_dx, aes(x = age_prediction, y = Age, colour = dx)) +
+       geom_point(mapping = ) + geom_smooth()
+
+```
+
+
+## Comparisons
+```{r t tests}
+# source: https://www.scribbr.com/statistics/t-test/
+
+# dx: PSS vs Non-PSS
+t.test(BAG ~ dx, alternative = "two.sided", data = enigma_dx)
+# the average brain age gap among individuals with PSS is not statistically different from those without PSS
+
+# sex: female vs male
+t.test(BAG ~ sex, alternative = "two.sided", data = enigma_dx)
+# the average brain age gap is significantly greater in males compared to females
+
+```
+

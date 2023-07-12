@@ -1,0 +1,373 @@
+---
+title: "Data Wrangling and Visualization for ENIGMA Age Prediction"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r Load libraries}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+
+```
+
+## Load data
+```{r Load ENIGMA processed data}
+
+# Load ENIGMA csv that contains age predictions, sex, dx, chronological age
+enigma_final <- read_csv("/external/rprshnas01/tigrlab/scratch/csun/brainage_proj/data/processed/enigma_final.csv")
+
+# Create condensed version of data frame containing only demographic variables
+demo_vars <- c("participant", "sex", "dx", "Age", "age_prediction") # list of demographic variables
+enigma_demo <- enigma_final[demo_vars]
+enigma_demo
+
+#### Load and tidy TAY clinical data ####
+# full TAY clinical data
+clinical_df <- read_csv("/KIMEL/tigrlab/scratch/csun/brainage_proj/data/raw/brainage_clinical_data.csv")
+clinical_df
+
+# modify the clinical data frame 'subject_id' to match 'participant' string in enigma data frames
+
+# replace the string prefix TAY01 with sub- 
+clinical_df$subject_id <- gsub("TAY01", "sub-", clinical_df$subject_id) 
+
+# remove the two underscores surrounding CMH 
+clinical_df$subject_id <- gsub("_CMH_","CMH", clinical_df$subject_id)
+
+# rename the subject_id column heading 'participant' to match enigma data frames
+clinical_df <- clinical_df %>% # need to specify where to store the new df 
+  rename(participant = subject_id) 
+clinical_df
+
+```
+## Calculate brain age gap
+```{r Calculating brain age gap}
+
+# Brain Age Gap = BAG = "age_prediction" - "Age"
+# BAG refers to the difference between the age of individuals predicted by ENIGMA (brain age or "age_prediction") and their chronological age
+
+# First calculate BAG for all participants and append BAG as a new column to the modified enigma data frame
+
+# use the mutate() function to create a new variable BAG for "brain age gap"
+enigma_BAG <- enigma_demo %>% mutate(BAG = age_prediction - Age) 
+enigma_BAG
+
+# check if any participants have 'NA' values for 'Age'
+na_count <- sum(is.na(enigma_demo$Age))
+na_count
+
+na_count2 <- sum(is.na(enigma_final$Age))
+na_count2
+
+# check if any participants have 'NA' values for 'dx' (diagnosis)
+na_count_dx <- sum(is.na(enigma_final$dx))
+na_count_dx
+
+# create a new data frame that excludes participants that are missing dx information
+enigma_dx <- enigma_BAG[complete.cases(enigma_BAG$dx), ]
+enigma_dx
+
+# check if any participants have 'NA' values for 'sex' 
+na_count_sex <- sum(is.na(enigma_final$sex))
+na_count_sex
+
+```
+## Incorporate total disorders
+These next two code chunks are both modified versions of code chunks for incorporating total disorders and ASD diagnoses from 01_centile_stats.Rmd (path: /external/rprshnas01/tigrlab/scratch/csun/BrainChart_data/notebooks/Rmd/01_centile_stats.Rmd)
+```{r Add total number of disorders and ASD}
+
+#### Append total # of disorders for all participants ####
+
+# identify all disorder categories included in clinical data by creating a list of disorders
+list_disorders <- list(colnames(clinical_df %>% select(ends_with("disorders"))))
+list_disorders
+# check type
+class(list_disorders)
+# convert list back to vector so that it can be passed through the mutate_at() function later on
+list_disorders <- unlist(list_disorders, use.names=FALSE)
+# check type again
+class(list_disorders)
+
+
+###### Finding NA values #####
+# Identify categories of disorders with NA values
+# find total NA values by column
+sapply(clinical_df, function(x) sum(is.na(x)))
+# source: https://www.statology.org/is-na/
+
+# replace all "NA" values in the disorders columns with "0"
+clinical_new <- clinical_df %>% 
+  # replace NA values in the 12 disorder columns
+  # list_disorders has been passed through the unlist() function so it is no longer a list
+  mutate_at(c(list_disorders), ~replace_na(., 0)) 
+# must put in the value 0 rather than the string "0" because the disorders columns are type "dbl" (numeric)
+clinical_new
+# Source: https://sparkbyexamples.com/r-programming/replace-na-with-empty-string-in-r-dataframe/?expand_article=1
+
+###### Total disorders ######
+# add values across each row for all the disorders and append the total as a new column to modified clinical_new data frame called 'clinical_plus'
+clinical_plus <- mutate(clinical_new, total_dx = (rowSums(clinical_new[, list_disorders]))) 
+clinical_plus # this data frame contains one addt'l columns with the total number of disorders summed from all 12 categories (total_dx)
+# Source: https://www.geeksforgeeks.org/sum-of-two-or-multiple-dataframe-columns-in-r/
+
+# Append the total disorders columns to enigma_BAG data frame
+enigma_BAG <- merge(enigma_BAG,
+                       clinical_plus[c('participant', 'total_dx')], by ='participant', all.x = TRUE)
+# merge by 'participant' column so that only the total disorders for participants in enigma_BAG AND clinical_df are merged  
+enigma_BAG
+```
+## Creating separate ASD data frames
+```{r Add total number of disorders and ASD}
+#### Append ASD for participants age <18 ####
+# use KSADS response for participants younger than age 18
+# append the "asd_info_asd_ksads
+# "Yes - participant met criteria for ASD on the KSADS" 
+# "No - participant did not meet criteria for ASD on the KSADS"
+
+# Filter for all participants who do not have 'NA' for 'asd_info_asd_ksads' column
+clinical_ASD <- filter(clinical_df, !is.na(asd_info_asd_ksads))
+# there are 150 participants who have KSADS info, this suggests that one of the participants whose scan age was < 18 y/o does not have info for KSADS (which is why filtering for scan age < 18 returned 151 participants, whereas filtering for KSADS returned only 150)
+clinical_ASD
+
+# modify the clinical ASD data frame 'asd_info_asd_ksads' entry to be easier to interpret
+
+# replace the long strings with "Yes" and "No" 
+clinical_ASD$asd_info_asd_ksads <- gsub("Yes - participant met criteria for ASD on the KSADS", "Yes", clinical_ASD$asd_info_asd_ksads) 
+
+clinical_ASD$asd_info_asd_ksads <- gsub("No - participant did not meet criteria for ASD on the KSADS", "No", clinical_ASD$asd_info_asd_ksads) 
+
+# replace the "insufficient info..." string with the string "No"
+clinical_ASD$asd_info_asd_ksads <- gsub("Insufficient information - Participant was sub-threshold or query for ASD on the KSADS", "No", clinical_ASD$asd_info_asd_ksads) 
+  # group participants that did not have enough information for ASD diagnosis using KSADS in the No ASD group  
+
+# rename the 'asd_info_asd_ksads' column heading to "ASD_dx"
+clinical_ASD <- clinical_ASD %>% rename(ASD_dx = asd_info_asd_ksads)
+clinical_ASD
+
+# Append the ASD_dx column to enigma_BAG data frame
+enigma_ASD <- merge(enigma_BAG,
+                       clinical_ASD[c('participant', 'ASD_dx')], by ='participant') # take the natural join so that only participants with data in both data frames (enigma_ASD and clinical_ASD) are added to the new data frame
+enigma_ASD
+# enigma_ASD is a data frame that includes brain age gap (BAG), predicted age, PSS and Non-PSS diagnosis (dx), ASD diagnoses (see above for what NA means), and total number of disorders for participants who have KSADS info
+
+# Identify if any participants from clinical_ASD data frame were not merged with enigma_BAG
+anti_join(clinical_ASD, enigma_BAG)
+# anti_join function from dplyr returns all rows from x without a match in y
+# Source: https://dplyr.tidyverse.org/reference/filter-joins.html
+
+# convert ASD_dx character to factor
+enigma_ASD$ASD_dx <- as.factor(enigma_ASD$ASD_dx)
+View(enigma_ASD)
+
+# save the enigma data frame with ASD info appended as a csv
+write.csv(enigma_ASD, "/KIMEL/tigrlab/scratch/csun/brainage_proj/data/processed/enigma_ASD.csv", row.names = FALSE)
+
+```
+### Explanation for participants with ASD data who were not included in enigma BAG calculations
+1. sub-CMH00000020 is missing data for volumes, cortical thickness, and surface area due to incomplete MRI.	
+2. sub-CMH00000282 is missing data for sex assigned at birth.
+
+The next two code chunks are modified from 01_centile_stats.Rmd (path: '/external/rprshnas01/tigrlab/scratch/csun/BrainChart_data/notebooks/Rmd/01_centile_stats.Rmd')
+
+## Create age categories
+```{r Creating a new variable for age bands}
+# First identify the min and max age of participants 
+enigma_demo %>% summarize(min_age = min(Age), max_age = max(Age), mean_age = mean(Age), median_age = median(Age), sd_age = sd(Age))
+# for Age: min = 11.2, max = 25.27, mean = 18.47, median = 18.01, sd = 3.78
+# Reference dplyr summarise() function - https://dplyr.tidyverse.org/reference/summarise.html
+
+# Create a new variable that assigns an age band grouping based on Age
+# age bands: 11-14, 15-17, 18-21, 21+
+enigma_age_bands <- enigma_BAG %>%
+  # use the mutate function to create a new column ('age_band') based on values in existing column ('Age')
+  mutate(age_band = case_when(
+    # use case_when function to define what string to assign when conditions are met 
+    Age >= 11 & Age < 15 ~ "11-14", 
+    Age >= 15 & Age < 18 ~ "15-17",
+    Age >= 18 & Age <= 21 ~ "18-21",
+    Age > 21 ~ "21+",
+    TRUE ~ NA_character_
+    # if any row does not meet the assigned condition (e.g., age is not reported), assign NA value
+  ))
+ # set upper limit to be < 15 and < 18 so that any participants w/ age above 14 or 17 but younger than 15 or 18 (14 w/ decimal places, 17 w/ decimal places) will still be assigned an age band rather than NA
+enigma_age_bands
+  
+```
+
+## Create total disorder categories
+```{r Creating a new variable for total # disorders}
+# First identify the min and max total # of disorders 
+enigma_BAG %>% summarize(min_disorders = min(total_dx), max_disorders = max(total_dx), mean_disorders = mean(total_dx), median_disorders = median(total_dx), sd_disorders = sd(total_dx))
+# for total number of disorders: min = 0, max = 8, mean = 3.40, median = 3, sd = 1.54
+
+# Create a new variable that assigns an grouping for total number of disorders based on 'total_dx'
+# append this new column to data frame that contains age bands
+# total number of disorders categories: 0-1, 2-3, 4+
+enigma_new <- enigma_age_bands %>%
+  # use the mutate function to create a new column ('age_band') based on values in existing column ('Age')
+  mutate(total_dx_group = case_when(
+    total_dx >= 0 & total_dx < 2 ~ "0-1", 
+    total_dx >= 2 & total_dx < 4 ~ "2-3",
+    total_dx >= 4 ~ "4+",
+    TRUE ~ NA_character_
+  ))
+ # set upper limit to be inclusive of 4 unlike age bands
+enigma_new
+
+# try a different grouping scheme for total # disorders
+enigma_new <- enigma_age_bands %>%
+  mutate(total_dx_group = case_when(
+    total_dx >= 0 & total_dx < 3 ~ "0-2", 
+    total_dx >= 3 & total_dx < 5 ~ "3-4",
+    total_dx >= 5 ~ "5+",
+    TRUE ~ NA_character_
+  ))
+enigma_new
+
+# Determine how many participants fall into the total disorder groups
+enigma_new %>% count(total_dx_group)
+# using the first grouping scheme: 0-1 (n=27), 2-3 (n=139), 4+ (n=133)
+# using the second grouping scheme: 0-2 (n=86), 3-4 (n=145), 5+ (n=68)
+
+# rearrange column order to make viewing the data frame more intuitive
+# participant, sex, dx, total_dx, total_dx_group, age_band, Age, age_prediction, BAG
+enigma_new <- select(enigma_new, participant, sex, dx, total_dx, total_dx_group, age_band, Age, age_prediction, BAG)
+
+```
+## Save the modified enigma df as csv
+```{r Write edited data frame to csv}
+# save the modified enigma data frame with age bands and total disorder groupings 
+write.csv(enigma_new, "/KIMEL/tigrlab/scratch/csun/brainage_proj/data/processed/enigma_new.csv", row.names = FALSE)
+```
+
+## Data visualization
+```{r Try plotting data}
+# plot BAG vs brain age 
+ggplot(data = enigma_BAG) +
+       geom_point(mapping = aes(x = Age, y = BAG))
+
+# plot brain age gap (BAG) and sex
+ggplot(data = enigma_BAG) +
+       geom_point(mapping = aes(x = sex, y = BAG))
+
+# Compare BAG between PSS and Non-PSS participants
+dx_plot <- ggplot(data = enigma_BAG) +
+       geom_point(mapping = aes(x = dx, y = BAG))
+dx_plot
+
+# Compare BAG and dx using a box plot
+ggplot(data = enigma_BAG) +
+       geom_boxplot(mapping = aes(x = dx, y = BAG)) + coord_flip()
+
+# visualize the distribution of participants among the total disorder groupings
+ggplot(data = enigma_new, aes(x = total_dx_group)) + 
+  geom_bar() + theme_classic()
+
+# visualize the distribution of participants among the age bands
+ggplot(data = enigma_new, aes(x = age_band)) + 
+  geom_bar() + theme_classic()
+enigma_new %>% count(age_band)
+
+```
+
+### PSS vs Non-PSS
+```{r Try plotting data}
+#### Comparing PSS and Non-PSS ####
+
+# Brain Age Gap (BAG) boxplot
+ggplot(data = enigma_dx) +
+       geom_boxplot(mapping = aes(x = dx, y = BAG)) + coord_flip()
+
+# brain age ("age_prediction") boxplot
+ggplot(data = enigma_dx) +
+       geom_boxplot(mapping = aes(x = dx, y = age_prediction)) + coord_flip()
+
+# brain age and BAG scatter plot
+ggplot(data = enigma_dx, aes(x = age_prediction, y = Age, colour = dx)) +
+       geom_point() + geom_smooth()
+
+# brain age and BAG grouped by ASD 
+ggplot(data = enigma_ASD, aes(x = age_prediction, y = Age, colour = ASD_dx)) +
+       geom_point() 
+
+```
+
+
+## Comparisons
+```{r t tests}
+# source: https://www.scribbr.com/statistics/t-test/
+
+#### Brain Age Gap (BAG) ####
+# dx: PSS vs Non-PSS
+t.test(BAG ~ dx, alternative = "two.sided", data = enigma_dx)
+# the average brain age gap among individuals with PSS is not statistically different from those without PSS
+
+# sex: female vs male
+t.test(BAG ~ sex, alternative = "two.sided", data = enigma_dx)
+# the average brain age gap is significantly greater in males compared to females 
+
+# ASD: Yes or No 
+t.test(BAG ~ ASD_dx, alternative = "two.sided", data = enigma_ASD)
+# There is no significant difference between the brain age gap of individuals with ASD compared to those without ASD (p=2.022).
+
+#### sex and age ####
+# scan age and sex
+t.test(Age ~ sex, alternative = "two.sided", data = enigma_new)
+# the average age at which participants were scanned is not statistically different between males and females (female: 18.55, male: 18.28, p = 0.5884)
+
+# predicted age and sex
+t.test(age_prediction ~ sex, alternative = "two.sided", data = enigma_new)
+# the average predicted brain age is significantly greater for males (21.87) than females (18.55), p=0.002634
+
+# age and dx (PSS vs Non-PSS)
+t.test(Age ~ dx, alternative = "two.sided", data = enigma_new)
+# the average age of participants with PSS is not significantly different from individuals without PSS (p = 0.7558, PSS: 18.41, Non-PSS: 18.54)
+
+# predicted age and dx (PSS vs Non-PSS)
+t.test(age_prediction ~ dx, alternative = "two.sided", data = enigma_new)
+# the average predicted brain age is older for individuals PSS (20.16) compared to individuals without PSS (19.27), but this difference is not significant (p = 0.3753)
+
+```
+## Multiple group comparisons using ANOVA 
+```{r Two-way ANOVA}
+#### Comparing PSS vs Non-PSS ####
+# model 1: a two-way ANOVA with no interactions or blocking variables (additive two-way ANOVA)
+two.way <- aov(BAG ~ total_dx_group + dx, data = enigma_new)
+two.way
+
+# model 2: a two-way ANOVA w/ interactions but no blocking variables
+interaction <- aov(BAG ~ total_dx_group * dx, data = enigma_new)
+interaction
+
+# model 3: a two-way ANOVA w/ interaction AND blocking variable
+blocking <- aov(BAG ~ total_dx_group * dx + age_band, data = enigma_new)
+blocking
+
+# compare the 3 models to determine which model is the best fit for our data using Akaike information criterion (AIC) model selection
+
+# install.packages("AICcmodavg")
+library(AICcmodavg)
+
+model.set <- list(two.way, interaction, blocking)
+model.names <- c("two.way", "interaction", "blocking")
+
+aictab(model.set, modnames = model.names)
+# aictab() performs a model comparison and calculates the best-fit model that has the explains the largest amount of variation in BAG while using the fewest parameters, and lists the best fit first 
+
+# view summary of two-way model
+summary(two.way)
+# no significance differences between BAG among groups of participants w/ various total number of disorders 
+# Source: https://www.scribbr.com/statistics/two-way-anova/
+
+```
+

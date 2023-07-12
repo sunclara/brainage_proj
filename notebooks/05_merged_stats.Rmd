@@ -1,0 +1,309 @@
+---
+title: "Merging BrainChart and ENIGMA outputs"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Libraries
+```{r Load libraries}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+```
+
+## Load data
+```{r Read csv files as data frames}
+
+# Load csv with brain age gap calculated using ENIGMA age prediction output
+enigma_new <- read_csv("/external/rprshnas01/tigrlab/scratch/csun/brainage_proj/data/processed/enigma_new.csv")
+# Note the version of total disorder groupings used in enigma_new (0-2, 3-4, 5+) 
+enigma_new
+# Load csv with centile scores from BrainChart
+centiles_final <- read_csv("/KIMEL/tigrlab/scratch/csun/BrainChart_data/data/processed/centiles_final.csv")
+# Note the version of total disorder groupings used in centiles_final (0-2, 3-4, 5+) 
+
+# Load csv with enigma csv with ASD diagnoses appended
+enigma_ASD <- read_csv("/external/rprshnas01/tigrlab/scratch/csun/brainage_proj/data/processed/enigma_ASD.csv")
+
+# load group_T1w.tsv 
+group_T1w <- read_delim("/external/rprshnas01/tigrlab/archive/data/TAY/pipelines/versioned_outputs/baseline_only/mriqc/group_T1w.tsv", 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+group_T1w
+
+# load group_bold
+group_bold <- read_delim("/external/rprshnas01/tigrlab/archive/data/TAY/pipelines/versioned_outputs/baseline_only/mriqc/group_bold.tsv", 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+group_bold
+
+
+```
+
+
+## Merge data frames
+Create one data frame that includes BAG, centile scores, and ASD diagnoses
+```{r Create one df w/ all variables}
+# Append centile scores to enigma data frames
+brainage_df <- merge(enigma_new,
+                       centiles_final[c('participant', 'centile')], by ='participant', all.x = TRUE)
+# merge by 'participant' column and append centile scores from centiles_final to enigma_new  
+
+# Append ASD diagnoses
+brainage_merged <- merge(
+  brainage_df,enigma_ASD[c('participant', 'ASD_dx')], by ='participant', all.x = TRUE)
+
+# Reorder columns
+brainage_merged <- select(brainage_merged, participant, sex, ASD_dx, dx, total_dx, total_dx_group, age_band, Age, age_prediction, BAG, centile)
+brainage_merged
+
+# Create a "final" version of the merged data frame that excludes participants who are missing PSS/Non-PSS 'dx' info
+brainage_final <- brainage_merged %>% 
+  filter(!is.na(dx)) # only keep rows that are not missing 'dx'
+brainage_final
+
+# filter for NA for PSS and Non-PSS (~13)
+
+```
+
+```{r Create new data frames separated by sex}
+
+# females only
+brainage_female <- filter(brainage_final, sex == "Female")
+brainage_female
+
+# males only
+brainage_male <- filter(brainage_final, sex == "Male")
+brainage_male
+
+```
+
+Questions related to sex differences:
+1) Why is the predicted age significantly older for males?
+2) Why is brain age gap 
+
+
+## Save new data frames as csv
+```{r Save the final merged brainage df}
+write.csv(brainage_final, "/KIMEL/tigrlab/scratch/csun/brainage_proj/data/processed/brainage_final.csv", row.names = FALSE)
+```
+
+## Data visualization 
+
+What are the demographic variables we are working with?
+1) Age - scan age
+2) sex - sex assigned at birth
+3) dx - diagnosis for PSS or Non-PSS
+4) ASD_dx - indicates if participant has been diagnosed with ASD based on KSADS (only applicable to participants < age 18)
+5) age_band - derived grouping (11-14, 15-17, 18-21, 21+) 
+6) total_dx - numerical value representing the summed total number of disorders
+7) total_dx_group - derived grouping (0-2, 3-4, 5+)
+
+What are the computed variables we are working with?
+1) age_prediction - brain age predicted by ENIGMA
+2) BAG - brain age gap calculated as the difference between brain age and scan age (age_prediction - Age)
+3) centile - centile score predicted by BrainChart
+*4) qi_1 - QA metrics (not added yet)
+
+```{r Visualize the variation w/in and between variables}
+# plot BAG vs centile scores grouped by PSS and Non-PSS
+ggplot(data = brainage_final, aes(x = BAG, y = centile, colour = dx)) +
+       geom_point(shape = 1) + # Use hollow circles
+  geom_smooth(method=lm) +
+  # Add linear regression line that includes 95% confidence region by default
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  # use scale_y_continuous to set the range of the y-axis
+  theme_classic() +
+  facet_wrap(~age_band)
+
+# plot BAG vs centile scores grouped by sex
+ggplot(data = brainage_final, aes(x = BAG, y = centile, colour = sex)) +
+       geom_point(shape = 1) + # Use hollow circles
+  geom_smooth(method=lm) +
+  # Add linear regression line that includes 95% confidence region by default
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  # use scale_y_continuous to set the range of the y-axis
+  theme_classic() +
+  facet_wrap(~age_band)
+
+# plot BAG vs centile scores grouped by sex
+ggplot(data = brainage_final, aes(x = BAG, y = centile, colour = sex)) +
+       geom_point(shape = 1) + # Use hollow circles
+  geom_smooth(method=lm) +
+  # Add linear regression line that includes 95% confidence region by default
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  # use scale_y_continuous to set the range of the y-axis
+  theme_classic() +
+  facet_wrap(~age_band)
+
+
+# Source: http://www.cookbook-r.com/Graphs/Scatterplots_(ggplot2)/
+
+cor.test(brainage_final$centile, brainage_final$BAG, method = "pearson")
+
+```
+The scatter plot suggests a negative correlation between centile scores and brain age gap for both PSS and Non-PSS groups. However, the BAG range for PSS participants appears to broader (longer line).
+
+```{r}
+#  centile scores PSS and Non-PSS by age bands
+brainage_final %>%  
+  # filter out the two older age categories b/c KSADS only done for participants age < 18
+  ggplot(aes(x = age_band, y = centile, colour = dx)) +
+   geom_boxplot(position=position_dodge(width=0.9)) +
+  geom_point(position=position_jitterdodge(dodge.width=0.9)) +
+  # add geom_point() to overlay the points
+       theme_classic() +
+  facet_wrap(~sex)
+# 3 way ANOVA 
+```
+
+```{r}
+# BAG PSS and Non-PSS for by age categories
+brainage_final %>%  
+  # filter out the two older age categories b/c KSADS only done for participants age < 18
+  ggplot(aes(x = age_band, y = BAG, colour = dx)) +
+   geom_boxplot(position=position_dodge(width=0.9)) +
+  geom_point(position=position_jitterdodge(dodge.width=0.9)) +
+  # add geom_point() to overlay the points
+       theme_classic()
+```
+```{r}
+# BAG PSS and Non-PSS for by total disorder grouping
+brainage_final %>%  
+  ggplot(aes(x = age_band, y = BAG, colour = total_dx_group)) +
+   geom_boxplot(position=position_dodge(width=0.9)) +
+  geom_point(position=position_jitterdodge(dodge.width=0.9)) +
+  # add geom_point() to overlay the points
+       theme_classic()
+```
+
+
+```{r}
+# Centile PSS and Non-PSS for by total disorder grouping
+brainage_final %>%  
+  ggplot(aes(x = age_band, y = centile, colour = total_dx_group)) +
+   geom_boxplot(position=position_dodge(width=0.9)) +
+  geom_point(position=position_jitterdodge(dodge.width=0.9)) +
+  # add geom_point() to overlay the points
+       theme_classic()
+```
+
+
+```{r}
+```
+
+
+Q: why is the average centile score lower for individuals with PSS?
+Q: why is the average BAG greater for individuals with ASD?
+
+```{r Variation with ASD}
+# plot BAG among participants with and without ASD
+ggplot(data = subset(brainage_final, !is.na(ASD_dx)), aes(x = ASD_dx, y = BAG)) +
+       geom_boxplot() +
+  theme_classic()
+
+# centile scores
+ggplot(data = subset(brainage_final, !is.na(ASD_dx)), aes(x = ASD_dx, y = centile, colour = age_band)) +
+       geom_boxplot() +
+  theme_classic() 
+
+brainage_final %>% drop_na(ASD_dx) %>% 
+  filter(age_band %in% c("15-17", "11-14")) %>%
+  # filter out the two older age categories b/c KSADS only done for participants age < 18
+  ggplot(aes(x = age_band, y = centile, colour = ASD_dx)) +
+   geom_boxplot(position=position_dodge(width=0.9)) +
+  geom_point(position=position_jitterdodge(dodge.width=0.9)) +
+  # add geom_point() to overlay the points
+       theme_classic()  
+# BAG
+brainage_final %>% drop_na(ASD_dx) %>% 
+  filter(age_band %in% c("15-17", "11-14")) %>%
+  ggplot(aes(x = age_band, y = BAG, colour = ASD_dx)) +
+   geom_boxplot(position=position_dodge(width=0.9)) +
+  geom_point(position=position_jitterdodge(dodge.width=0.9))
+
+# Compare BAG and centile scores between participants with and without ASD
+ggplot(data = subset(brainage_final, !is.na(ASD_dx)), aes(x = BAG, y = centile, colour = ASD_dx)) +
+       geom_point(shape = 1) + # Use hollow circles
+  geom_smooth(method=lm) +
+  # Add linear regression line that includes 95% confidence region by default
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  # use scale_y_continuous to set the range of the y-axis
+  theme_classic()
+
+# look at PSS and ASD
+```
+
+
+```{r Explore variation with age bands}
+# use the reorder() function within aes to reorder the x variable based on the median value of the y variable
+
+# Age prediction 
+ggplot(data = brainage_final, aes(x = reorder(age_band, age_prediction, FUN = median), y = age_prediction)) + 
+  geom_boxplot()
+
+# Brain age gap
+ggplot(data = brainage_final, aes(x = reorder(age_band, BAG, FUN = median), y = BAG)) + 
+  geom_boxplot()
+
+# Centile scores
+ggplot(data = brainage_final, aes(x = reorder(age_band, centile, FUN = median), y = centile)) + 
+  geom_boxplot()
+
+```
+The box plot shows that the 15-17 age band has the largest range of centile scores.
+
+```{r Explore variation with total disorder groups}
+# Age prediction
+ggplot(data = brainage_final, aes(x = reorder(total_dx_group, age_prediction, FUN = median), y = age_prediction)) + 
+  geom_boxplot()
+
+# Brain age gap
+ggplot(data = brainage_final, aes(x = reorder(total_dx_group, BAG, FUN = median), y = BAG)) + 
+  geom_boxplot()
+
+# Centile score
+ggplot(data = brainage_final, aes(x = reorder(total_dx_group, centile, FUN = median), y = centile)) + 
+  geom_boxplot()
+
+```
+
+
+## Linear models
+
+```{r Linear models for BAG and centile scores}
+
+# centile ANOVA
+
+lm_centile <- lm(centile ~ sex * dx * age_band, data = brainage_final)
+# figure out how to do the analysis by category - e.g., linear model for just the youngest age group or lm for the participants with 5+ total disorders
+aov(lm_centile)
+summary(aov(lm_centile))
+
+# age
+lm_centile_age <- lm(centile ~ sex * dx * Age, data = brainage_final)
+# figure out how to do the analysis by category - e.g., linear model for just the youngest age group or lm for the participants with 5+ total disorders
+aov(lm_centile_age)
+summary(aov(lm_centile_age))
+```
+```{r}
+# BAG ANOVA
+
+## age bands
+lm_BAG <- lm(BAG ~ sex * dx * age_band, data = brainage_final)
+# figure out how to do the analysis by category - e.g., linear model for just the youngest age group or lm for the participants with 5+ total disorders
+aov(lm_BAG)
+summary(aov(lm_BAG))
+
+## scan age
+lm_age <- lm(BAG ~ sex * dx * Age, data = brainage_final)
+# figure out how to do the analysis by category - e.g., linear model for just the youngest age group or lm for the participants with 5+ total disorders
+aov(lm_age)
+summary(aov(lm_age))
+```
+
+##
+```{r }

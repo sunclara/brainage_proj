@@ -1,0 +1,187 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+library(tidyverse)
+library(dplyr)
+# usually create a single code chunk at the very top for loading libraries
+
+LandRvolumes_original <- read_csv("/external/rprshnas01/tigrlab/scratch/csun/ENIGMA/ENIGMA_female/LandRvolumes-original.csv")
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+```{r}
+##### Modify LandRvolumes_original.csv #####
+# override the message: `summarise()` has grouped output by 'participant'. You can override using the `.groups` argument.
+# https://statisticsglobe.com/dplyr-message-summarise-has-grouped-output-r
+# options(dyplr.summarise.inform=FALSE)
+
+# NOTE: a detailed explanation for the code chunk below is provided but subsequent variations of this code chunk will contain more abbreviated comments
+
+LandRvolumes <- LandRvolumes_original %>% 
+  # use the pivot_longer function to modify a section of the data frame (all the average volume values) by passing the column names as values to a column called "ROI" and the original thickness values to a second column called "Volume" such that the modified df has only 2 columns
+  pivot_longer(LLatVent:Raccumb, names_to = "ROI", values_to = "Volume") %>%
+  # use the mutate() function to create columns with new names based on existing column names
+  mutate(hemi=str_sub(ROI, 1, 1), 
+         roi=str_sub(ROI, 2,-1)) %>%
+  # group by participant and roi variables 
+  group_by(participant, roi) %>%
+  # compute the mean of L and R volumes
+  summarise(M=mean(Volume)) %>%
+  # transform back to wide format with features as column headings, i.e., spreading values from a single column "Volume" into multiple columns (wide data)
+  # this is possible because pivot_longer and pivot_wider are opposites
+  pivot_wider(id_cols = participant, names_from = roi, values_from=M, names_prefix = "M") %>%
+  # rename the columns to match examples in supplementary table 5 (Han et al., 2020)
+  # https://www.datanovia.com/en/lessons/rename-data-frame-columns-in-r/
+  rename(Mvent = MLatVent)
+
+# Re-order the columns of LandRvolumes to match example by Han et al., 2020 
+col_order_volumes <- c("participant", "Mvent", "Mthal", "Mcaud", "Mput", "Mpal", "Mhippo", "Mamyg", "Maccumb")
+
+Mvolumes <- LandRvolumes[, col_order_volumes]
+Mvolumes
+
+
+```
+```{r}
+##### Modify CorticalMeasuresENIGMA_ThickAvg-original.csv #####
+# Average the left and right cortical thickness values 
+
+# tip from Erin to generate the code to read csv as dataframe: select Import Dataset > From Text (readr) > browse and select the csv file you want to work with > copy the code
+
+# Load the csv as a data frame
+CorticalMeasuresENIGMA_ThickAvg <- read_csv("/external/rprshnas01/tigrlab/scratch/csun/ENIGMA/ENIGMA_female/CorticalMeasuresENIGMA_ThickAvg-original.csv")
+CorticalMeasuresENIGMA_ThickAvg
+
+ThickAvg <- CorticalMeasuresENIGMA_ThickAvg %>% 
+  # use the pivot_longer function to transpose x and y variables
+  pivot_longer(L_bankssts_thickavg:R_parahippocampal_thickavg, names_to = "ROI", values_to = "ThickAvg") %>%
+  # use the mutate() function to create columns with new names
+  mutate(hemi=str_sub(ROI, 1, 1), 
+         roi=str_sub(ROI, 2,-1)) %>%
+  group_by(participant, roi) %>%
+  # compute the mean of L and R cortical thickness
+  summarise(M=mean(ThickAvg)) %>%
+  # transform back to wide format with features as column headings
+  pivot_wider(id_cols = participant, names_from = roi,
+              # watch out for the names_prefix, in this case do not need to add another _ after M
+              values_from=M, names_prefix = "M")
+
+# Re-order the columns of ThickAvg to match example by Han et al., 2020 
+col_order_thickavg <- c("participant", "M_bankssts_thickavg", "M_caudalanteriorcingulate_thickavg", "M_caudalmiddlefrontal_thickavg", "M_cuneus_thickavg", "M_entorhinal_thickavg", "M_fusiform_thickavg", "M_inferiorparietal_thickavg", "M_inferiortemporal_thickavg","M_isthmuscingulate_thickavg","M_lateraloccipital_thickavg", "M_lateralorbitofrontal_thickavg", "M_lingual_thickavg", "M_medialorbitofrontal_thickavg", "M_middletemporal_thickavg","M_parahippocampal_thickavg","M_paracentral_thickavg","M_parsopercularis_thickavg","M_parsorbitalis_thickavg", "M_parstriangularis_thickavg","M_pericalcarine_thickavg", "M_postcentral_thickavg", "M_posteriorcingulate_thickavg", "M_precentral_thickavg", "M_precuneus_thickavg", "M_rostralanteriorcingulate_thickavg", "M_rostralmiddlefrontal_thickavg", "M_superiorfrontal_thickavg","M_superiorparietal_thickavg", "M_superiortemporal_thickavg", "M_supramarginal_thickavg", "M_frontalpole_thickavg", "M_temporalpole_thickavg", "M_transversetemporal_thickavg", "M_insula_thickavg")
+
+print(length(col_order_thickavg))
+MThickAvg <- ThickAvg[, col_order_thickavg]
+MThickAvg
+
+```
+```{r}
+##### Modify CorticalMeasuresENIGMASurfAvg-original.csv #####
+
+# Mean cortical surface area
+
+CorticalMeasuresENIGMA_SurfAvg <- read_csv("/external/rprshnas01/tigrlab/scratch/csun/ENIGMA/ENIGMA_female/CorticalMeasuresENIGMA_SurfAvg-original.csv")
+CorticalMeasuresENIGMA_SurfAvg
+
+SurfAvg <- CorticalMeasuresENIGMA_SurfAvg %>% 
+  # use the pivot_longer function to transpose x and y variables
+  pivot_longer(L_bankssts_surfavg:R_insula_surfavg, names_to = "ROI", values_to = "SurfAvg") %>%
+  # use the mutate() function to create columns with new names
+  mutate(hemi=str_sub(ROI, 1, 1), 
+         roi=str_sub(ROI, 2,-1)) %>%
+  # group_by() EXPLAIN 
+  group_by(participant, roi) %>%
+  # compute the mean of L and R cortical thickness
+  summarise(M=mean(SurfAvg)) %>%
+  # transform back to wide format with features as column headings
+  pivot_wider(id_cols = participant, names_from = roi,
+              # watch out for the names_prefix, in this case do not need to add another _ after M
+              values_from=M, names_prefix = "M")
+
+# Re-order the columns of SurfAvg to match example by Han et al., 2020 
+# re-order alphabetically
+
+# note - the ROIs are listed alphabetically in Han et al. (2020) but the same list was used for ThickAvg and SurfAvg due to the column name suffixes (thickavg vs surfavg)
+new_order = sort(colnames(SurfAvg)) # this is not really necessary because columns are almost all in alphabetical order, quicker to move the few columns that are not
+SurfAvg_reorder <- SurfAvg[,new_order]
+# https://sparkbyexamples.com/r-programming/reorder-columns-in-r/
+
+# relocate a single column using relocate() function
+MSurfAvg <- SurfAvg_reorder %>%
+  relocate(participant)
+
+
+```
+
+
+```{r}
+##### Merging female data frames #####
+# Source: https://www.geeksforgeeks.org/merge-dataframes-by-column-names-in-r/
+
+# merge the Mvolumes, MThickAvg, and MSurfAvg data frames
+
+# Merge the two data frames first and specify the column in common using by
+merged_df1 <- merge(Mvolumes, MThickAvg, by="participant")
+merged_df1
+
+# Merge the third data frame with the data frame merged above
+merged_df2 <- merge(merged_df1, MSurfAvg, by="participant")
+merged_df2
+
+
+```
+
+
+```{r}
+##### add the ICV column back in and remove participant #####
+
+myvars <- c("participant", "ICV")
+ICV_df <- LandRvolumes_original[myvars]
+ICV_df
+
+# merge ICV data frame with the merged data frame from above containing volumes, cortical thickness, and surface area
+
+female_merged <- merge(ICV_df, merged_df2, by="participant")
+
+# create a new df that excludes the participant column
+# source: https://www.statmethods.net/management/subset.html
+female_merged_no_participant <- female_merged[c(-1)]
+female_merged_final <- female_merged_no_participant %>%
+  relocate(M_insula_surfavg, .after = M_transversetemporal_surfavg) %>%
+  relocate(M_frontalpole_surfavg, .before=M_temporalpole_surfavg)
+# check that there are 77 columns in the final df
+female_merged_final
+
+```
+
+
+```{r}
+##### Export final data frame to csv #####
+
+# make sure the file path provided includes folders that actually exist (ENIGMA vs ENIGMA_data)
+
+write.csv(female_merged_final, file ='/external/rprshnas01/tigrlab/scratch/csun/ENIGMA_data/data/processed/female_averaged.csv', row.names=FALSE)
+```
+
+
+```{r}
+# repeat for the 3 male files
+
+# TO DO SOME MORE DATA WRANGLING
+# SurfAvg last few variables are not in alphabetical order - need to change 
+# use df_name %>% relocate()
+# if columns are not in proper order, the predicted age is negative 
+```
+

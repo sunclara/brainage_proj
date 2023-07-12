@@ -1,0 +1,193 @@
+---
+title: "Merging Processed ENIGMA Brain Age Data"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r Load Libraries}
+library(tidyverse)
+library(dplyr)
+
+```
+## Load data
+```{r Load processed and raw ENIGMA data}
+
+#### PROCESSED ENIGMA BRAIN AGE CSV FILES ####
+# female processed ENIGMA brain age csv
+female_enigma <- read_delim("/external/rprshnas01/tigrlab/scratch/csun/ENIGMA_data/data/processed/female_enigma_brainage.csv", 
+    delim = "\t", escape_double = FALSE, # specify the delimiter as tabs
+    col_types = cols(...1 = col_skip()), # remove the first row header column
+    trim_ws = TRUE)
+female_enigma
+
+# male processed ENIGMA brain age csv
+male_enigma <- read_delim("/external/rprshnas01/tigrlab/scratch/csun/ENIGMA_data/data/processed/male_enigma_brainage.csv", 
+    delim = "\t", escape_double = FALSE, # specify the delimiter as tabs
+    col_types = cols(...1 = col_skip()), # remove the first row header column
+    trim_ws = TRUE)
+male_enigma
+
+#### RAW ENIGMA LEFT AND RIGHT VOLUMES ####
+
+# female raw LandRvolumes csv - contains participant ID and sex
+f_LandRvolumes <- read_csv("/external/rprshnas01/tigrlab/scratch/csun/ENIGMA_data/data/raw/female_LandRvolumes-original.csv")
+# create a new dataframe with L and R volumes averaged  
+f_LandRvolumes_new <- f_LandRvolumes %>%
+  filter_if(is.numeric, any_vars(. != 0.0)) %>% # Remove any rows with 0 (null) values for features
+  # use the pivot_longer function to transpose x and y variables
+  pivot_longer(LLatVent:Raccumb, names_to = "ROI", values_to = "Volume") %>%
+  # use the mutate() function to create columns with new names
+  mutate(hemi=str_sub(ROI, 1, 1), 
+         roi=str_sub(ROI, 2,-1)) %>%
+  # group_by() EXPLAIN 
+  group_by(participant, roi) %>%
+  # compute the mean of L and R volumes
+  summarise(M=mean(Volume)) %>%
+  # transform back to wide format with features as column headings
+  pivot_wider(id_cols = participant, names_from = roi, values_from=M, names_prefix = "M") %>%
+  # rename the columns to match examples in supplementary table 5 (Han et al., 2020)
+  # https://www.datanovia.com/en/lessons/rename-data-frame-columns-in-r/
+  rename(Mvent = MLatVent)
+
+f_LandRvolumes_new
+
+# add ICV and sex column back to dataframe
+myvars <- c("participant", "ICV", "sex")
+f_ICV_df <- f_LandRvolumes[myvars] %>% 
+  # remove any rows with values of "0" from ICV df
+  filter_if(is.numeric, any_vars(. != 0))
+
+f_ICV_df
+
+# merge female ICV and LandRvolumes data frames
+f_merged <- merge(f_ICV_df, f_LandRvolumes_new, by="participant")
+f_merged
+
+
+# male raw LandRvolumes csv - contains participant ID and sex
+m_LandRvolumes <- read_csv("/external/rprshnas01/tigrlab/scratch/csun/ENIGMA_data/data/raw/male_LandRvolumes-original.csv") 
+
+# create a new dataframe with L and R volumes averaged  
+m_LandRvolumes_new <- m_LandRvolumes %>%
+  filter_if(is.numeric, any_vars(. != 0.0)) %>% # Remove any rows with 0 (null) values for features
+  # use the pivot_longer function to transpose x and y variables
+  pivot_longer(LLatVent:Raccumb, names_to = "ROI", values_to = "Volume") %>%
+  # use the mutate() function to create columns with new names
+  mutate(hemi=str_sub(ROI, 1, 1), 
+         roi=str_sub(ROI, 2,-1)) %>%
+  # group_by() EXPLAIN 
+  group_by(participant, roi) %>%
+  # compute the mean of L and R volumes
+  summarise(M=mean(Volume)) %>%
+  # transform back to wide format with features as column headings
+  pivot_wider(id_cols = participant, names_from = roi, values_from=M, names_prefix = "M") %>%
+  # rename the columns to match examples in supplementary table 5 (Han et al., 2020)
+  # https://www.datanovia.com/en/lessons/rename-data-frame-columns-in-r/
+  rename(Mvent = MLatVent)
+
+m_LandRvolumes_new
+
+# add ICV and sex column back to dataframe
+myvars <- c("participant", "ICV", "sex")
+m_ICV_df <- m_LandRvolumes[myvars] %>% 
+  # remove any rows with values of "0" from ICV df
+  filter_if(is.numeric, any_vars(. != 0))
+
+m_ICV_df
+
+# merge male ICV and LandRvolumes data frames
+m_merged <- merge(m_ICV_df, m_LandRvolumes_new, by="participant")
+m_merged
+
+```
+
+
+## Merge back participant ID and sex columns
+```{r Merge back the participant ID and sex columns}
+
+# source: https://sparkbyexamples.com/r-programming/r-append-dataframes/
+# First merge the female and male enigma data frames
+enigma_all <- rbind(female_enigma, male_enigma) # use rbind() to append one dataframe to another
+enigma_all
+
+# Next merge the averaged L and R volume male and female  data frames
+volumes_all <-rbind(f_merged, m_merged)
+volumes_all
+
+# Finally merge the combined processed enigma data frame with the combined volumes data frame
+
+## Identify the common columns between the two data frames using the intersect() function
+common_columns <- intersect(names(volumes_all), names(enigma_all))
+common_columns
+
+## Remove common columns from the 'by' argument because they will be merged automatically
+by_cols <- setdiff(common_columns, 
+                   c('sex', 'participant')) # identify the 2 columns present in volumes_all but not in enigma_all
+# by_cols contains the names of columns that are common b/w the two data frames but should not be included in the 'by' argument of the 'merge()' function below
+
+# merge the data frames using the identified by_cols 
+enigma_merged <- merge(volumes_all, enigma_all, by = by_cols)
+enigma_merged 
+
+# sort the merged data frame by participant ID then re-arrange the order of columns so that participant ID, sex, and predicted age appear in the first 3 columns 
+enigma_df <-  enigma_merged[order(enigma_merged$participant),] %>% relocate(participant, .before = ICV) %>%
+  
+  relocate(sex, .after = participant) %>% relocate(age_prediction, .after = sex)
+  
+enigma_df
+
+```
+## Merge chronological age and diagnosis data 
+```{r Merge age and diagnosis data}
+# Load brainchart demographic data 
+brainchart_demo <- read_csv("/external/rprshnas01/tigrlab/scratch/csun/ENIGMA_data/data/raw/brainchart_demo.csv")
+brainchart_demo
+
+# Edit the values of participant ID in brainchart to match the enigma format
+
+# replace the string prefix TAY01 with sub- 
+brainchart_demo$participant <- gsub("TAY01", "sub-", brainchart_demo$participant) 
+
+# remove the two underscores surrounding CMH 
+brainchart_demo$participant <- gsub("_CMH_","CMH", brainchart_demo$participant)
+
+brainchart_demo
+
+# Append 'Age' and 'dx' from brainchart_demo to the merged enigma_df based on participant ID
+enigma_final <- merge(enigma_df, brainchart_demo[c('participant', 'Age', 'dx')], by = 'participant', all.x = TRUE) 
+enigma_final
+
+# re-arrange the demographic variables so that they appear earlier
+enigma_final <- enigma_final %>%
+  relocate(Age, .before = age_prediction) %>%
+  relocate(dx, .after = sex)
+
+enigma_final 
+
+
+```
+## Export final data frame to csv
+```{r Write the edited enigma data frame to csv file}
+write.csv(enigma_final, file ='/external/rprshnas01/tigrlab/scratch/csun/ENIGMA_data/data/processed/enigma_final.csv', row.names=FALSE)
+
+```
+
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
