@@ -1,0 +1,5 @@
+#ignore data files
+/data/processed
+/data/raw
+/data
+.Rproj.user/*
