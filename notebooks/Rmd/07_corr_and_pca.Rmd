@@ -1,0 +1,228 @@
+---
+title: "Principal Component Analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Resources
+How to create a correlation matrix - http://www.sthda.com/english/wiki/ggcorrplot-visualization-of-a-correlation-matrix-using-ggplot2 
+
+## Set up working environment
+```{r For local users only - install packages}
+install.packages("ggcorrplot")
+# ggcorrplot includes functions to reorder the correlation matrix and display significant level on the plot; computes matrix of correlation p-values
+
+install.packages("stats")
+# includes functions for principal component analysis
+
+install.packages("devtools") 
+install_github("kassambara/factoextra")
+
+```
+
+
+```{r Set up - Load libraries}
+library(tidyverse)
+library(ggcorrplot)
+library(dplyr)
+library(stats)
+library(devtools)
+# library("factoextra") # unable to load 
+```
+
+```{r Set up - Load and tidy data}
+# Load brainage_final
+brainage_final <- read_csv("/KIMEL/tigrlab/scratch/csun/brainage_proj/data/processed/brainage_final.csv")
+# brainage_final.csv contains 12 columns (participant ID + 11 variables of interest): sex, ASD diagnoses, PSS dx, total dx, total dx group, age band, scan age, ENIGMA age prediction, ENIGMA BAG, BrainChart centile score, qi_1
+
+# Subset brainage_final to keep only numeric columns and remove NAs
+brainage_num <- brainage_final %>% 
+  select(where(is.numeric)) %>% # subset by numeric columns
+  na.omit(brainage_final) # omit all rows with NA values in any column
+ # filter(!is.na(qi_1)) # another way to remove row(s) with NA values by removing NA values from a specific column (in this case qi_1 is the only column with NAs)
+# brainage_num
+
+# we are removing non-numeric columns because the correlation matrix is intended for numeric data 
+# resource: https://www.statology.org/dplyr-select-numeric-columns/
+```
+
+
+```{r Set up - subset data to 5 variables}
+# Subset brainage_num further to exclude the qi_1 column because its correlation values are closed to 0
+brainage_5 <- brainage_num %>%
+  select(-qi_1) # remove the qi_1 column
+brainage_5
+
+```
+```{r Set up - subset data to only age related variable}
+brainage <- brainage_final %>% 
+  select(where(is.numeric)) %>% # subset by numeric columns
+  na.omit(brainage_final) %>%
+  select(-qi_1) %>% # remove the qi_1 column
+  select(-total_dx) # remove the total_dx column
+
+brainage
+```
+
+
+## Correlation Matrix
+```{r Compute a correlation matrix for 6 variables}
+
+# Compute a correlation matrix of p-values
+corr <- round(cor(brainage_num), 1)
+
+# view first 6 rows of the correlation matrix
+head(corr[, 1:6])
+```
+
+```{r Compute a correlation matrix for 5 variables}
+# Compute a correlation matrix of p-values
+corr2 <- round(cor(brainage_5), 1)
+
+# view first 5 rows of the correlation matrix
+head(corr2[, 1:5])
+```
+```{r Compute a correlation matrix for age related variables}
+corr3 <- round(cor(brainage), 1)
+
+# view first 5 rows of the correlation matrix
+head(corr3[, 1:4])
+```
+
+
+```{r Compute a matrix of correlation p-values for 6 variables}
+# use the cor_pmat() function from corrplot pkg
+p_mat <- cor_pmat(brainage_num)
+
+# display the full p-value matrix
+head(p_mat[, 1:6])
+```
+
+```{r Compute a matrix of correlation p-values for 5 variables}
+# use the cor_pmat() function from corrplot pkg
+p_mat2 <- cor_pmat(brainage_5)
+
+# display the full p-value matrix
+head(p_mat2[, 1:5])
+```
+```{r Compute a matrix of correlation p-values for age variables}
+# use the cor_pmat() function from corrplot pkg
+p_mat3 <- cor_pmat(brainage)
+
+# display the full p-value matrix
+head(p_mat3[, 1:4])
+```
+
+## Correlation matrix visualization 
+```{r Visualize the correlation matrix for 6 variables}
+# use the default "square" method
+ggcorrplot(corr)
+
+# reorder the correlation matrix using hierarchical clustering
+ggcorrplot(corr, hc.order = TRUE, outline.col = "white")
+
+# add correlation coefficients with argument lab = TRUE
+ggcorrplot(corr, hc.order = TRUE, type = "lower", lab = TRUE)
+```
+Observations from correlation matrix w/ 6 variables:
+- qi_1 has very low correlation with all variables
+- BAG and predicted age are highly correlated (this is expected because BAG was derived from the predicted age)
+
+```{r Visualize the correlation matrix for 5 variables}
+# use the default "square" method
+ggcorrplot(corr2)
+
+# reorder the correlation matrix using hierarchical clustering
+ggcorrplot(corr2, hc.order = TRUE, outline.col = "white")
+
+# add correlation coefficients with argument lab = TRUE
+ggcorrplot(corr2, hc.order = TRUE, type = "lower", lab = TRUE)
+```
+
+```{r Visualize the correlation matrix for age variables}
+# use the default "square" method
+ggcorrplot(corr3)
+
+# reorder the correlation matrix using hierarchical clustering
+ggcorrplot(corr3, hc.order = TRUE, outline.col = "white")
+
+# add correlation coefficients with argument lab = TRUE
+ggcorrplot(corr3, hc.order = TRUE, type = "lower", lab = TRUE)
+```
+
+## Principal Component Analysis (PCA)
+```{r PCA eligibility}
+# unsupervised learning - explore data without labels
+
+# check PCA eligibility 
+# are the variables highly correlated? (linearly dependent or not)
+# correlation matrix to check for degree of correlation, assuming high degree of correlation if r > 0.3 or r < -0.3
+
+# average correlation among the variables
+mean(corr) # mean for correlation of all 6 variables is 0.18889 
+mean(corr2) # mean for correlation of 5 variables is 0.248 -> indicates variables are not highly correlated - does this mean the data are not eligible?
+mean(corr3)
+
+```
+NOTE: the PCA below may not be valid, need to double check eligibility requirements above
+```{r Conduct PCA}
+pca <- princomp(brainage_num) 
+pca2 <- princomp(brainage_5)
+pca3 <- princomp(brainage)
+```
+
+## Evaluating PCA
+- remember: the number of components is always equal to the number of variables 
+Two ways to evaluate PCA
+1. Check whether principal components (PCs) capture the essence of the original variable
+2. Check whether PCs are independent
+- Resource: https://youtu.be/jFN4qkSOd4I
+
+```{r Inspect PC loadings}
+# inspect contents of pca
+pca$loadings # 6 components bc 6 variables in original df
+pca2$loadings # 5 components
+pca3$loadings # 4 components
+
+# focus on the first two components
+pca$loadings[,1:2]
+# first two components of 5 PC 
+format(pca2$loadings[,1:2], scientific = FALSE)
+# first two components of 4 PC
+format(pca3$loadings[,1:3], scientific = FALSE)
+```
+
+```{r Check for independence among principal components}
+
+# PCs are considered independent if the correlation among PCs is approximately 0
+pc <- pca$scores # first create an object with scores
+pc2 <- pca2$scores
+pc3 <- pca3$scores
+# compare correlation scores for PCs
+cor(pc) 
+# correlation for PCs is almost zero EXCEPT comp 6 -due to qi_1?
+cor(pc2) # does not seem like component 5 is independent
+cor(pc3)
+```
+```{r Visualization of the principal components}
+#### Scree plot ####
+
+# calculate total variance explained by each principal component
+var_explained = pca$sdev^2 / sum(pca$sdev^2)
+var_explained
+
+qplot(c(1:6), var_explained) +
+  geom_line() +
+  # geom_bar() +
+  xlab("Principal Component") + 
+  ylab("Variance Explained") +
+  ggtitle("Scree Plot") +
+  ylim(0,1)
+
+# resource: https://www.statology.org/scree-plot-r/
+
+```
+

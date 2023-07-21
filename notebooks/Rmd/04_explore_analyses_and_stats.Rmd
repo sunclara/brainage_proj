@@ -306,6 +306,8 @@ ggplot(data = enigma_ASD, aes(x = age_prediction, y = Age, colour = ASD_dx)) +
 ## Comparisons
 ```{r t tests}
 # source: https://www.scribbr.com/statistics/t-test/
+#### predicted age by ASD ####
+t.test(age_prediction ~ ASD_dx, alternative = "two.sided", data = enigma_ASD)
 
 #### Brain Age Gap (BAG) ####
 # dx: PSS vs Non-PSS
@@ -318,7 +320,7 @@ t.test(BAG ~ sex, alternative = "two.sided", data = enigma_dx)
 
 # ASD: Yes or No 
 t.test(BAG ~ ASD_dx, alternative = "two.sided", data = enigma_ASD)
-# There is no significant difference between the brain age gap of individuals with ASD compared to those without ASD (p=2.022).
+# There is no significant difference between the brain age gap of individuals with ASD compared to those without ASD (p=0.2022).
 
 #### sex and age ####
 # scan age and sex

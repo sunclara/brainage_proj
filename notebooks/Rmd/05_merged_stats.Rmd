@@ -1,0 +1,646 @@
+---
+title: "Merging BrainChart and ENIGMA outputs"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Install Packages
+```{r Install new packages}
+# corr, ggcorrplot, and FactoMineR are packages used for performing principal component analysis (PCA) 
+# install.packages("corrr")
+# install.packages("ggcorrplot")
+# install.packages("FactoMineR") # unable to install - ERROR: dependency ‘emmeans’ is not available for package ‘FactoMineR’
+# install.packages("emmeans")
+# install.packages("evaluate")
+
+# install.packages("bookdown") -> may need to re-install before knitting
+
+```
+
+
+## Load Libraries
+```{r Load libraries}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+# library(corrr)
+# library(ggcorrplot)
+# library("FactoMineR")
+
+```
+
+## Load data
+```{r Read csv files as data frames}
+
+# Load csv with brain age gap calculated using ENIGMA age prediction output
+enigma_new <- read_csv("/external/rprshnas01/tigrlab/scratch/csun/brainage_proj/data/processed/enigma_new.csv")
+# Note the version of total disorder groupings used in enigma_new (0-1, 2-3, 4+) 
+enigma_new
+# Load csv with centile scores from BrainChart
+centiles_final <- read_csv("/KIMEL/tigrlab/scratch/csun/BrainChart_data/data/processed/centiles_final.csv")
+# Note the version of total disorder groupings used in centiles_final (0-1, 2-3, 4+) 
+
+# Load csv with enigma csv with ASD diagnoses appended
+enigma_ASD <- read_csv("/external/rprshnas01/tigrlab/scratch/csun/brainage_proj/data/processed/enigma_ASD.csv")
+
+# load group_T1w.tsv 
+group_T1w <- read_delim("/external/rprshnas01/tigrlab/archive/data/TAY/pipelines/versioned_outputs/baseline_only/mriqc/group_T1w.tsv", 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+group_T1w
+
+# load group_bold.tsv
+group_bold <- read_delim("/external/rprshnas01/tigrlab/archive/data/TAY/pipelines/versioned_outputs/baseline_only/mriqc/group_bold.tsv", 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+group_bold
+
+# load mriqc QA data for participants included in the protocol paper
+# this version of QA data is for reference only, group_T1w contains a more recent version of qi_1 values (i.e., more participants are included)
+# TAY_mriqc <- read_csv("/KIMEL/tigrlab/scratch/csun/brainage_proj/data/raw/mriqc_tay_group_T1w_20220414.csv")
+# TAY_mriqc
+
+# load T1w tsv file from jwong for sub-CMH00000263_ses-01_T1w
+sub_263_T1w <- read_delim("/KIMEL/tigrlab/scratch/csun/brainage_proj/data/raw/group_T1w_og.tsv", 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+sub_263_T1w
+
+```
+
+## Incorporate QA metrics
+Resource with tips and tricks for using the dplyr filter function: https://sebastiansauer.github.io/dplyr_filter/ 
+```{r Add qi_1 data}
+# filter out participants with zero values for qi_1
+group_T1w %>% 
+  select(bids_name, qi_1) %>% # include only these 2 columns 
+  filter(qi_1 != 0) # filter for rows that have non-zero qi_1 values  
+# There are 49 entries of non-zero qi_1 values but some of these correspond to multiple runs for the same participant
+
+# filter for participants with multiple runs
+multi_run <- group_T1w %>%
+  select(bids_name, qi_1) %>% 
+  filter(str_detect(bids_name, "run")) # filter for rows with multiple runs
+# There are 36 entries corresponding to participants with multiple runs, including some that have qi_1 values of zero for both runs.
+multi_run
+
+# filter for participants with non-zero qi_1 AND multiple runs
+group_T1w %>% 
+  select(bids_name, qi_1) %>% # include only these 2 columns 
+  filter(qi_1 != 0) %>% # filter for rows that have non-zero qi_1 values  
+  filter(str_detect(bids_name, "run")) # filter for rows with multiple runs
+# There are 15 entries of non-zero qi_1 values corresponding to multiple runs
+
+# save data frame w/ participants who have multiple runs as csv for reference purposes
+write.csv(multi_run, "/KIMEL/tigrlab/scratch/csun/brainage_proj/data/raw/multi_run.csv", row.names = FALSE)
+```
+
+Assumptions for removing and merging qi_1 values for participants with multiple runs -- double check with Erin and Jimmy
+- If one of the runs is a blacklisted scan, remove it and keep the remaining scan
+- If one run is flagged while the other is approved, remove the flagged scan and keep the approved
+- If both runs are flagged, keep the run with the smaller qi_1 value (?)
+- If both runs have qi_1 value of 0, merge and keep the qi_1 value at 0
+- 
+```{r Filtering qi_1 data}
+#### remove qi_1 values for blacklisted scans ####
+blacklist <- c("sub-CMH00000218_ses-01_run-01_T1w", "sub-CMH00000224_ses-01_run-02_T1w", "sub-CMH00000283_ses-01_run-01_T1w", "sub-CMH00000421_ses-01_run-01_T1w", "sub-CMH00000466_ses-01_run-01_T1w")
+class(blacklist)
+blacklist_T1 <- group_T1w[group_T1w$bids_name %in% c("sub-CMH00000218_ses-01_run-01_T1w", "sub-CMH00000224_ses-01_run-02_T1w", "sub-CMH00000283_ses-01_run-01_T1w", "sub-CMH00000421_ses-01_run-01_T1w", "sub-CMH00000466_ses-01_run-01_T1w"), ]
+blacklist_T1
+
+#### remove qi_1 values for flagged runs ####
+# includes flagged runs that are paired with an approved run and flagged runs with larger qi_1 
+flagged_T1 <- group_T1w[group_T1w$bids_name %in% c("sub-CMH00000062_ses-01_run-02_T1w", "sub-CMH00000150_ses-01_run-01_T1w","sub-CMH00000192_ses-01_run-01_T1w", "sub-CMH00000263_ses-01_run-01_T1w", "sub-CMH00000360_ses-01_run-01_T1w", "sub-CMH00000361_ses-01_run-01_T1w","sub-CMH00000369_ses-01_run-01_T1w"), ]
+flagged_T1
+
+#### runs that both have qi_1 values of 0 ####
+# delete one of the rows, choose the one that is flagged if the other is approved 
+final_filter <- group_T1w[group_T1w$bids_name %in% c("sub-CMH00000019_ses-01_run-02_T1w","sub-CMH00000039_ses-01_run-02_T1w", "sub-CMH00000056_ses-01_run-01_T1w", "sub-CMH00000270_ses-01_run-01_T1w", "sub-CMH00000287_ses-01_run-01_T1w", "sub-CMH00000435_ses-01_run-01_T1w" ), ]
+final_filter
+
+#### remove subsetted data frames ####
+# remove the subsetted blacklist data frame using the anti_join function
+filtered_T1 <- anti_join(group_T1w, blacklist_T1, by = "bids_name")
+filtered_T1
+
+# remove the subsetted flagged data frame using the anti_join function
+extra_filtered_T1 <- anti_join(filtered_T1, flagged_T1, by = "bids_name") %>% select(bids_name, qi_1)
+extra_filtered_T1
+
+#remove the subsetted flagged data frame using the anti_join function
+final_filtered_T1 <- anti_join(extra_filtered_T1, final_filter, by = "bids_name") %>% select(bids_name, qi_1)
+final_filtered_T1
+
+# rename bids_name column "participant" and string format to match brainage_final
+# remove "_run-01"
+final_filtered_T1$bids_name <- gsub("_run-01", "", final_filtered_T1$bids_name) 
+# remove "_run-02"
+final_filtered_T1$bids_name <- gsub("_run-02", "", final_filtered_T1$bids_name) 
+# remove '_ses-01_T1w' string ending and rename 'bids_name' column 
+final_filtered_T1 <- final_filtered_T1 %>%
+  mutate(participant = str_replace(bids_name, "_ses-01_T1w", "")) %>%
+  select(-bids_name) %>%
+  relocate(participant, .before = qi_1)
+final_filtered_T1
+
+# save the filtered data frame as csv 
+write.csv(final_filtered_T1, "/KIMEL/tigrlab/scratch/csun/brainage_proj/data/processed/mriqc_qi_1.csv", row.names = FALSE)
+
+```
+
+
+## Merge data frames
+Create one data frame that includes BAG, centile scores, and ASD diagnoses
+```{r Create one df w/ all variables}
+# Append centile scores to enigma data frames
+brainage_df <- merge(enigma_new,
+                       centiles_final[c('participant', 'centile')], by ='participant', all.x = TRUE)
+# merge by 'participant' column and append centile scores from centiles_final to enigma_new  
+
+# Append ASD diagnoses
+brainage_merged <- merge(
+  brainage_df,enigma_ASD[c('participant', 'ASD_dx')], by ='participant', all.x = TRUE)
+
+# Reorder columns
+brainage_merged <- select(brainage_merged, participant, sex, ASD_dx, dx, total_dx, total_dx_group, age_band, Age, age_prediction, BAG, centile)
+brainage_merged
+
+# Create a "final" version of the merged data frame that excludes participants who are missing PSS/Non-PSS 'dx' info
+brainage_final <- brainage_merged %>% 
+  filter(!is.na(dx)) # only keep rows that are not missing 'dx'
+brainage_final
+
+# filter for NA for PSS and Non-PSS (~13)
+
+# Append mriqc metrics qi_1 to brainage data frame
+brainage_final <- merge(
+  brainage_final, final_filtered_T1[c('participant', 'qi_1')], by ='participant', all.x = TRUE)
+brainage_final
+```
+
+```{r Create new data frames separated by sex}
+
+# females only
+brainage_female <- filter(brainage_final, sex == "Female")
+
+asd_female <- filter(enigma_ASD, sex == "Female")
+
+# males only
+brainage_male <- filter(brainage_final, sex == "Male")
+
+asd_male <- filter(enigma_ASD, sex == "Male")
+
+```
+
+Questions related to sex differences:
+1) Why is the predicted age significantly older for males?
+2) Why is brain age gap significant larger (and more positive) for males?
+
+## Save new data frames as csv
+```{r Save the final merged brainage df}
+write.csv(brainage_final, "/KIMEL/tigrlab/scratch/csun/brainage_proj/data/processed/brainage_final.csv", row.names = FALSE)
+```
+
+## Data visualization 
+
+### What are the demographic variables we are working with?
+1) Age - scan age
+2) sex - sex assigned at birth
+3) dx - diagnosis for PSS or Non-PSS
+4) ASD_dx - indicates if participant has been diagnosed with ASD based on KSADS (only applicable to participants < age 18)
+5) age_band - derived grouping (11-14, 15-17, 18-21, 21+) 
+6) total_dx - numerical value representing the summed total number of disorders
+7) total_dx_group - derived grouping (0-2, 3-4, 5+)
+
+### What are the computed variables we are working with?
+1) age_prediction - brain age predicted by ENIGMA
+2) BAG - brain age gap calculated as the difference between brain age and scan age (age_prediction - Age)
+3) centile - centile score predicted by BrainChart
+4) qi_1 - QA metrics 
+
+### Based on the above variables, what relationships can we visualize?
+- Our main question for this project: how does brain age differ between individuals with and without psychosis spectrum symptoms (PSS)? 
+- Secondary question: can differences in brain age be explained in part by sex, chronological age, multimorbidity, or ASD?
+- Broader next steps: do our findings support the use of brain age and brain age gap as biological markers for the prognosis and/or prediction of mental illness?
+
+```{r Check for background effects of scan quality }
+# QI_1 vs predicted age 
+ggplot(data = brainage_final, aes(x = age_prediction, y = qi_1)) +
+       geom_point()
+# There is one participant with extremely large QI_1 value
+# check which participant using which.max
+brainage_final[which.max(brainage_final$qi_1), ]
+# participant 394 has QI_1 value 0.004482072
+
+# what about participant 263 who has qi_1 of 0.01418? This is an even larger value than participant 394's. Participant 263 has already been removed i.e., not present in the final brainage data frames.
+
+# remove participant 394 and visualize 
+brainage_qi_1 <- filter(brainage_final, participant != "sub-CMH00000394")
+brainage_qi_1
+
+# qi_1 and age
+ggplot(data = brainage_qi_1, aes(x = age_prediction, y = qi_1, color = Age)) +
+  geom_jitter(width = .2)
+
+# QI_1 vs centile scores
+ggplot(data = brainage_qi_1, aes(x = centile, y = qi_1)) +
+  geom_jitter(width = .2)
+
+```
+
+Proportions can be calculated using the mean() function: https://www.r-bloggers.com/2016/07/proportions-with-mean/
+```{r proportions male vs female}
+#### PSS ####
+# What is the relative proportion of participants w/ PSS by sex?
+
+# males
+mean(brainage_male$dx == "PSS") # 0.414 or ~41%
+
+# females
+mean(brainage_female$dx == "PSS") # 0.56 or 56%
+
+#### ASD ####
+# What is the relative proportion of participants w/ ASD by sex?
+# use enigma_ASD data frame
+# males
+mean(asd_male$ASD_dx == "Yes") # 0.267 or ~26.7%
+
+# females
+mean(asd_female$ASD_dx == "Yes") # 0.146 or ~14.6%
+
+
+```
+
+
+## Visualize the variation w/in and between variables
+Resource for mapping variable values to colors: http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/ 
+```{r Set colors for sex + dx + ASD + qi_1}
+# set colours for sex assigned at birth
+female_colour <- "#FF0000" # red
+male_colour <- "#007ED6" # blue
+
+# alternative colours for sex
+colour_f <- "#CC79A7" # pink
+colour_m <- "#56B4E9" # light blue
+
+# set colours for PSS and Non-PSS 
+colour_pss <- "#702A8C" # purple 
+colour_non_pss <- "#FFC154" # orange
+
+# set colours for ASD 
+colour_ASD <- "#6B3E2E" # brown
+  
+# set colours for participants with non-zero 
+colour_qi_1 <- "#D55E00" # red for QI1 values > 0
+colour_qi_extreme <- "#AF4154" # maroon for QI1 values > 0.05e-04
+# or use this alternative "old brick" colour: #96281B  
+  
+```
+
+
+```{r BAG vs centile scores grouped by PSS grouping}
+
+# plot BAG vs centile scores grouped by PSS and Non-PSS
+ggplot(data = brainage_final, aes(x = BAG, y = centile, colour = dx)) +
+       geom_point(shape = 1) + # Use hollow circles
+  geom_smooth(method=lm) +
+  # Add linear regression line that includes 95% confidence region by default
+ scale_y_continuous(limits = c(-0.2,1.2), expand = c(0.05,0)) +
+  # use scale_y_continuous to set the range of the y-axis, expand to add some padding to ensure no values are cut-off
+  theme_classic() +
+  facet_wrap(~age_band) +
+  scale_color_manual(values = c("PSS" = colour_pss, "Non-PSS" = colour_non_pss)) + # set colours for PSS grouping
+   xlab("ENIGMA Derived Brain Age Gap") +
+  ylab("BrainChart Centile Score")
+
+```
+
+
+```{r BAG vs centile scores grouped by sex and age_band}
+# set colours for sex assigned at birth
+female_colour <- "#FF0000" # Red
+male_colour <- "#007ED6" # Blue
+# plot BAG vs centile scores grouped by sex
+ggplot(data = brainage_final, aes(x = BAG, y = centile, colour = sex)) +
+       geom_point(shape = 1) + # Use hollow circles
+  geom_smooth(method=lm) +
+  # Add linear regression line that includes 95% confidence region by default
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  # use scale_y_continuous to set the range of the y-axis
+  theme_classic() +
+  facet_wrap(~age_band) +
+   scale_colour_manual(values = c("Male" = colour_m, "Female" = colour_f)) + # set colours for sex
+   xlab("ENIGMA Derived Brain Age Gap") +
+  ylab("BrainChart Centile Score")
+```
+
+
+```{r BAG vs centile scores grouped by sex and total_dx}
+# plot BAG vs centile scores grouped by sex
+ggplot(data = brainage_final, aes(x = BAG, y = centile, colour = sex)) +
+       geom_point(shape = 1) + # Use hollow circles
+  geom_smooth(method=lm) +
+  # Add linear regression line that includes 95% confidence region by default
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  # use scale_y_continuous to set the range of the y-axis
+  theme_classic() +
+  facet_wrap(~total_dx) + 
+  scale_colour_manual(values = c("Male" = colour_m, "Female" = colour_f)) +
+  xlab("ENIGMA Derived Brain Age Gap") +
+  ylab("BrainChart Centile Score")
+
+# Source: http://www.cookbook-r.com/Graphs/Scatterplots_(ggplot2)/
+```
+
+```{r Interactions b/w PSS and ASD}
+# boxplot 
+ggplot(data = subset(brainage_final, !is.na(ASD_dx)), aes(x = dx, y = centile, colour = ASD_dx)) +
+       geom_boxplot() +
+  theme_classic() +
+ # facet_wrap(~ASD_dx) + 
+  ylab("BrainChart Centile Score") +
+  xlab("PSS grouping") +
+  labs(title = "Centile Scores by ASD and PSS Diagnoses")
+
+```
+
+
+```{r Correlation test for centile vs BAG}
+cor.test(brainage_final$centile, brainage_final$BAG, method = "pearson")
+
+# print the actual p-value 
+cor.test(brainage_final$centile, brainage_final$BAG, method = "pearson")$p.value
+```
+The scatter plot suggests a negative correlation between centile scores and brain age gap for both PSS and Non-PSS groups. However, the BAG range for PSS participants appears to broader (longer line). This relationship is confirmed by Pearson's correlation test (r = -0.63, p < 0.0001).
+
+```{r centile vs age-band grouped by dx and sex}
+#  centile scores PSS and Non-PSS by age bands
+brainage_final %>%  
+  ggplot(aes(x = age_band, y = centile, colour = dx)) +
+   geom_boxplot(position=position_dodge(width=0.9)) +
+  geom_point(position=position_jitterdodge(dodge.width=0.9)) +
+  # add geom_point() to overlay the points
+       theme_classic() +
+  facet_wrap(~sex) +
+  scale_color_manual(values = c("PSS" = colour_pss, "Non-PSS" = colour_non_pss)) + # set colours for PSS grouping
+   xlab("ENIGMA Derived Brain Age Gap") +
+  ylab("BrainChart Centile Score")
+  
+# 3 way ANOVA 
+```
+
+```{r BAG vs age_band grouped by sex and dx}
+
+# BAG PSS and Non-PSS for by age categories
+brainage_final %>% drop_na(ASD_dx) %>% 
+  filter(age_band %in% c("15-17", "11-14")) %>%
+  # filter out the two older age categories b/c KSADS only done for participants age < 18
+  ggplot(aes(x = age_band, y = BAG, colour = sex)) +
+   geom_boxplot(position=position_dodge(width=0.9)) +
+  geom_point(position=position_jitterdodge(dodge.width=0.9)) +
+  # add geom_point() to overlay the points
+       theme_classic() +
+  facet_wrap(~dx) +
+  scale_colour_manual(values = c("Male" = colour_m, "Female" = colour_f)) +
+   ylab("ENIGMA Derived Brain Age Gap") +
+  xlab("Age Band")
+```
+```{r BAG vs age_band grouped by multimorbidity}
+# BAG PSS and Non-PSS for by total disorder grouping
+brainage_final %>%  
+  ggplot(aes(x = age_band, y = BAG, colour = total_dx_group)) +
+   geom_boxplot(position=position_dodge(width=0.9)) +
+  geom_point(position=position_jitterdodge(dodge.width=0.9)) +
+  # add geom_point() to overlay the points
+       theme_classic() +
+   ylab("ENIGMA Derived Brain Age Gap") +
+  xlab("Age Band") +
+  labs(colour = "Morbidity Group")
+```
+
+
+```{r centile scores vs age_band grouped by multimorbidity}
+# Centile PSS and Non-PSS for by total disorder grouping
+brainage_final %>%  
+  ggplot(aes(x = age_band, y = centile, colour = total_dx_group)) +
+   geom_boxplot(position=position_dodge(width=0.9)) +
+  geom_point(position=position_jitterdodge(dodge.width=0.9)) +
+  # add geom_point() to overlay the points
+       theme_classic() +
+  ylab("BrainChart Centile Score") +
+  xlab("Age Band") +
+  labs(colour = "Morbidity Group")
+```
+
+
+```{r BAG vs age_band grouped by multimorbidity and sex}
+# these groupings may not be valid b/c there are some age bands with only one participant
+
+# BAG PSS and Non-PSS for by total disorder grouping
+brainage_final %>%  
+  ggplot(aes(x = age_band, y = BAG, colour = total_dx_group)) +
+   geom_boxplot(position=position_dodge(width=0.9)) +
+  geom_point(position=position_jitterdodge(dodge.width=0.9)) +
+  # add geom_point() to overlay the points
+       theme_classic() + 
+  facet_wrap(~sex) + 
+    ylab("ENIGMA Derived Brain Age Gap") +
+  xlab("Age Band") +
+  labs(colour = "Morbidity Group")
+```
+
+
+Q: why is the average centile score lower for individuals with PSS?
+Q: why is the average BAG greater for individuals with ASD?
+
+```{r Variation with ASD}
+# plot BAG among participants with and without ASD
+ggplot(data = subset(brainage_final, !is.na(ASD_dx)), aes(x = ASD_dx, y = BAG)) +
+       geom_boxplot() +
+  theme_classic()
+
+# centile scores
+ggplot(data = subset(brainage_final, !is.na(ASD_dx)), aes(x = ASD_dx, y = centile, colour = age_band)) +
+       geom_boxplot() +
+  theme_classic() 
+
+brainage_final %>% drop_na(ASD_dx) %>% 
+  filter(age_band %in% c("15-17", "11-14")) %>%
+  # filter out the two older age categories b/c KSADS only done for participants age < 18
+  ggplot(aes(x = age_band, y = centile, colour = ASD_dx)) +
+   geom_boxplot(position=position_dodge(width=0.9)) +
+  geom_point(position=position_jitterdodge(dodge.width=0.9)) +
+  # add geom_point() to overlay the points
+       theme_classic()  
+# BAG
+brainage_final %>% drop_na(ASD_dx) %>% 
+  filter(age_band %in% c("15-17", "11-14")) %>%
+  ggplot(aes(x = age_band, y = BAG, colour = ASD_dx)) +
+   geom_boxplot(position=position_dodge(width=0.9)) +
+  geom_point(position=position_jitterdodge(dodge.width=0.9))
+
+# Compare BAG and centile scores between participants with and without ASD
+ggplot(data = subset(brainage_final, !is.na(ASD_dx)), aes(x = BAG, y = centile, colour = ASD_dx)) +
+       geom_point(shape = 1) + # Use hollow circles
+  geom_smooth(method=lm) +
+  # Add linear regression line that includes 95% confidence region by default
+  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  # use scale_y_continuous to set the range of the y-axis
+  theme_classic() 
+# ADD FACET WRAP HERE
+
+# look at PSS and ASD
+```
+
+
+```{r Explore variation with age bands}
+# use the reorder() function within aes to reorder the x variable based on the median value of the y variable
+
+# Age prediction 
+ggplot(data = brainage_final, aes(x = reorder(age_band, age_prediction, FUN = median), y = age_prediction)) + 
+  geom_boxplot()
+
+# Brain age gap
+ggplot(data = brainage_final, aes(x = reorder(age_band, BAG, FUN = median), y = BAG)) + 
+  geom_boxplot()
+
+# Centile scores
+ggplot(data = brainage_final, aes(x = reorder(age_band, centile, FUN = median), y = centile)) + 
+  geom_boxplot()
+
+```
+The box plot shows that the 15-17 age band has the largest range of centile scores.
+
+```{r Explore variation with total disorder groups}
+# Age prediction
+ggplot(data = brainage_final, aes(x = reorder(total_dx_group, age_prediction, FUN = median), y = age_prediction)) + 
+  geom_boxplot()
+
+# Brain age gap
+ggplot(data = brainage_final, aes(x = reorder(total_dx_group, BAG, FUN = median), y = BAG)) + 
+  geom_boxplot()
+
+# Centile score
+ggplot(data = brainage_final, aes(x = reorder(total_dx_group, centile, FUN = median), y = centile)) + 
+  geom_boxplot()
+
+```
+
+## Pairwise comparisons by sex
+```{r t-test for total_dx and sex}
+# need to set categorical variables as two-level factor before conducting t tests
+# sex: Male, Female
+brainage_final$sex <- as.factor(brainage_final$sex)
+# ASD: Yes, No
+enigma_ASD$ASD_dx <- as.factor(enigma_ASD$ASD_dx)
+# dx: PSS, Non-PSS
+brainage_final$dx <- as.factor(brainage_final$dx)
+
+
+# sex and total_dx
+t.test(total_dx ~ sex, alternative = "two.sided", data = brainage_final)
+
+# for more t-tests see the "Comparisons" section of "04_explore_analyses_and_stats.Rmd"
+```
+
+```{r chi-square tests to compare 2 categorical vars}
+# sex and dx
+table_dx <- table(brainage_final$dx, brainage_final$sex)
+result_dx <- chisq.test(table_dx)
+result_dx
+
+# sex and ASD_dx
+table_asd <- table(enigma_ASD$ASD_dx, enigma_ASD$sex)
+result_asd <- chisq.test(table_asd)
+result_asd
+
+# dx and age_band
+table_age_band <- table(brainage_final$dx, brainage_final$age_band)
+result_age_band <- chisq.test(table_age_band)
+result_age_band
+
+# sex and age_band
+table_ageb_sex <- table(brainage_final$sex, brainage_final$age_band)
+result_ageb_sex <- chisq.test(table_ageb_sex)
+result_ageb_sex
+# 
+```
+Results of Pearson's Chi-squared test 
+- for sex and dx: X-squared = 4.6202, df = 1, p-value = 0.0316
+- for sex and ASD_dx: X-squared = 2.318, df = 1, p-value = 0.1279
+- for dx and age_band: X-squared = 1.3204, df = 3, p-value = 0.7243
+- for sex and age_band: X-squared = 10.426, df = 3, p-value = 0.01527
+
+
+## Linear models
+```{r t tests for ASD}
+
+# ASD: BAG vs ASD_dx
+# ASD: centile vs ASD_dx
+# see "Comparisons" section of "04_explore_analyses_and_stats.Rmd" for ASD t tests
+```
+
+
+```{r ANOVA linear models for centile scores}
+
+# centile ANOVA
+
+lm_centile <- lm(centile ~ sex * dx * age_band, data = brainage_final)
+
+aov(lm_centile) # perform ANOVA on the linear model
+plot(aov(lm_centile)) # verify assumptions (normal distribution, homoscedasticity, additivity)
+summary(aov(lm_centile)) # identify strength of interactions
+
+# age
+lm_centile_age <- lm(centile ~ sex * dx * Age, data = brainage_final)
+aov(lm_centile_age)
+summary(aov(lm_centile_age))
+
+# total_dx
+lm_centile_total_dx <- lm(centile ~ sex * dx * total_dx, data = brainage_final)
+aov(lm_centile_total_dx)
+summary(aov(lm_centile_total_dx))
+
+# total_dx_group
+lm_centile_total_dx_grp <- lm(centile ~ sex * dx * total_dx_group, data = brainage_final)
+aov(lm_centile_total_dx_grp)
+summary(aov(lm_centile_total_dx_grp))
+```
+
+```{r ANOVA linear models for BAG}
+# BAG ANOVA
+
+## age bands
+lm_BAG <- lm(BAG ~ sex * dx * age_band, data = brainage_final)
+aov(lm_BAG)
+summary(aov(lm_BAG))
+# sex: p = 0.000111
+# dx: p = 0.079625
+# age_band: p = 0.149424
+
+## scan age
+lm_age <- lm(BAG ~ sex * dx * Age, data = brainage_final)
+aov(lm_age)
+summary(aov(lm_age))
+
+## total dx
+lm_total_dx <- lm(BAG ~ sex * dx * total_dx, data = brainage_final)
+aov(lm_total_dx)
+summary(aov(lm_total_dx))
+
+## total dx group
+lm_total_dx_grp <- lm(BAG ~ dx * sex * total_dx_group, data = brainage_final)
+aov(lm_total_dx_grp)
+summary(aov(lm_total_dx_grp))
+```
+
+## Extra analysis
+```{r Additional analyses}
+mean(brainage_final$Age) # 18.47
+mean(brainage_final$age_prediction) # 19.73
+```
+
+
+```{r Additional analyses}

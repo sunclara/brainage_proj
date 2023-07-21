@@ -112,5 +112,10 @@ t.test(BAG ~ dx, alternative = "two.sided", data = enigma_dx)
 t.test(BAG ~ sex, alternative = "two.sided", data = enigma_dx)
 # the average brain age gap is significantly greater in males compared to females
 
+# predicted age vs sex
+t.test(age_prediction ~ sex, alternative = "two.sided", data = enigma_dx)
+
+# predicted age vs dx
+t.test(age_prediction ~ dx, alternative = "two.sided", data = enigma_dx)
 ```
 

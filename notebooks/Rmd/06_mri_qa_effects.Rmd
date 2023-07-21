@@ -1,0 +1,339 @@
+---
+title: "MRI Quality Assurance Metrics"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This purpose of this script is to explore MRI QA metrics in more detail and determine their influence on outcomes of interest.
+
+## Load libraries 
+
+```{r Load libraries}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+```
+
+## Which MRI QA metric are we studying and why?
+
+We are focusing on Mortamet's first quality index, or QI1, which measures the number of artifactual intensities in the air surrounding the head and above the nasio-cerebellar axis. Smaller QI1 values reflect better scan quality. We chose to study QI1 because we observed that the majority of participants have QI1 values of zero. Furthermore those that have non-zero QI1 values have QI1 values that are relatively greater than zero (i.e., not negligible).
+
+## Load data
+
+Work with the brainage_final.csv which has the cleaned Q1_1 data for all participants appended in the "qi_1" column. 
+
+```{r Read csv files as data frames}
+# Load brainage_final.csv which contains 12 columns (participant ID + 11 variables of interest): sex, ASD diagnoses, PSS dx, total dx, total dx group, age band, scan age, ENIGMA age prediction, ENIGMA BAG, BrainChart centile score, qi_1
+brainage_final <- read_csv("/KIMEL/tigrlab/scratch/csun/brainage_proj/data/processed/brainage_final.csv")
+# brainage_final
+```
+
+## Inspect Data
+Resource: http://www.sthda.com/english/wiki/descriptive-statistics-and-graphics#summary-function
+```{r Summary of the qi_1 variable}
+# Determine summary statistics for qi_1
+summary(brainage_final$qi_1)
+
+# calculate the IQR 
+IQR <- IQR(brainage_final$qi_1, na.rm = TRUE) # set na.rm = TRUE to remove NA's
+# the IQR method does not really tell us much in our case because both the Q1 and Q3 are equal to zero
+```
+Based on these results, the range is 0 to 0.004482, mean is 0.000024, and median is 0. There is one participant (433) who is missing qi_1 value (shows up as NA). According to TAY QC dashboard, participant 433 has completed T1 scan.
+
+```{r Identify potential qi_1 outliers}
+# first filter out any NA values in qi_1 
+brainage_filtered <- brainage_final %>% filter(!is.na(qi_1))
+
+# identify potential extreme values
+hist(brainage_filtered$qi_1)
+boxplot(brainage_filtered$qi_1)
+qqnorm(brainage_filtered$qi_1)
+```
+Plots do not really show much because most values are zero.
+
+## Create new data frames
+
+```{r Create new data frames filtered by qi_1 values}
+# subset brainage_final to create a new data frame that only includes participants with QI1 values of zero
+zero_qi1 <- brainage_final %>% filter(qi_1 == 0) 
+zero_qi1
+```
+zero_qi1 is a data frame with 251 participants who have qi_1 of 0
+
+```{r Create new data frames filtered by nonzero qi_1 values}
+# subset brainage_final to create a new data frame that only includes participants with non-zero QI_1 values
+nonzero_qi1 <- brainage_final %>% filter(qi_1 != 0) 
+nonzero_qi1
+```
+```{r}
+# subset brainage_final to create a new data frame that only includes participants with extreme QI1 values (qi_1 ≥ 0.5E-04)
+extreme_qi1 <- brainage_final %>% filter(qi_1 >= 0.5E-04) 
+extreme_qi1
+```
+
+
+```{r Create new data frames filtered by extreme qi_1 values}
+# subset brainage_final to create a new data frame that only includes participants without extreme QI1 values (qi_1 < 0.5E-04)
+mild_qi1 <- brainage_final %>% filter(qi_1 < 0.5E-04)  
+mild_qi1
+
+```
+mild_qi1 is a data frame with 274 participants who have qi_1 less than 0.5E-04 (0.0005)
+
+## Data Visualization
+The following code chunks in the Data Visualization section are modified versions of the code chunks in 0.7 Data Visualization of 05_merged_stats.Rmd
+```{r Set colours}
+# alternative colours for sex
+colour_f <- "#CC79A7" # pink
+colour_m <- "#56B4E9" # light blue
+
+# set colours for PSS and Non-PSS 
+colour_pss <- "#702A8C" # purple 
+colour_non_pss <- "#FFC154" # orange
+
+# set colours for ASD 
+colour_ASD <- "#6B3E2E" # brown
+  
+# set colours for participants with non-zero 
+colour_qi_1 <- "#D55E00" # red for QI1 values > 0
+colour_qi_extreme <- "#AF4154" # maroon for QI1 values > 0.05e-04
+# or use this alternative "old brick" colour: #96281B 
+```
+
+Plots annotated for QI1 > 0
+```{r Check for extreme qi_1 values}
+# check for missing values
+colSums(is.na(brainage_final))
+# determine range of BAG
+range(brainage_final$BAG) 
+# The range for BAG is -19.36 to +31.54 (round to -20 and +32)
+# There are NA values for the following variables: ASD_dx [142], qi_1 [1]
+
+# use IQR method to identify outliers and set-up the range for Q1 and Q3
+# summary statistics for BAG to determine Q1 and Q3
+summary(brainage_final$BAG)
+# Q1 = -3.962
+# Q3 = 6.526
+range_IQR <- IQR(brainage_final$BAG) * 1.5
+# IQR = 10.48784
+# IQR * 1.5 = 15.73176
+q1_IQR <- -3.962 - range_IQR
+q3_IQR <- 6.526 + range_IQR
+```
+
+## Annotated QI1 plots
+```{r Visualizing participants with QI1 equal to zero}
+#### Plot BAG vs centile grouped by PSS and Non-PSS ####
+
+# Scatter plot w/ annotations for participants with non-zero qi_1 values with a larger circle around
+plot1 <- ggplot(data = brainage_final, aes(x = BAG, y = centile, shape = dx, colour = dx)) +
+  # set different shapes for PSS and Non-PSS
+       geom_point(aes(colour = dx)) + # assign colour by PSS grouping
+  geom_point(size = 2.5, shape = 1, data = nonzero_qi1, colour = "red") + # overlay larger red hollow circles around nonzero qi_1 values 
+  geom_smooth(method=lm, se = FALSE, linewidth = 0.5) +
+  # Add linear regression line that includes 95% confidence region by default
+ scale_y_continuous(limits = c(-0.15,1.15), expand = c(0,0)) +
+  # use scale_y_continuous to set the range of the y-axis, expand to add some padding to ensure no values are cut-off
+  theme_classic() +
+  facet_wrap(~age_band) +
+  scale_color_manual(values = c("PSS" = colour_pss, "Non-PSS" = colour_non_pss)) + # set colours for PSS grouping
+   xlab("ENIGMA Derived Brain Age Gap") +
+  ylab("BrainChart Centile Score") + 
+  labs(colour = "", shape = "Non-zero QI_1") +
+  guides(shape = guide_legend(override.aes = list(size = 2.5, colour = "red", fill = "white"))) ### START HERE 
+plot1
+
+# alternate plot: overlay with non-zero qi_1 values FILLED IN w/ colour_qi_1
+plot2 <- ggplot(data = brainage_final, aes(x = BAG, y = centile, shape = dx, colour = dx)) +
+       geom_point(aes(colour = dx)) + 
+  geom_point(data = nonzero_qi1, colour = colour_qi_extreme) + 
+  # annotate the nonzero qi_1 values by overlaying with a maroon colour
+  geom_smooth(method=lm, se = FALSE, linewidth = 0.5) +
+  # Add linear regression line that includes 95% confidence region by default
+ scale_y_continuous(limits = c(-0.15,1.15), expand = c(0,0)) +
+  # use scale_y_continuous to set the range of the y-axis, expand to add some padding to ensure no values are cut-off
+  theme_classic() +
+  facet_wrap(~age_band) +
+ scale_color_manual(values = c("PSS" = colour_pss, "Non-PSS" = colour_non_pss)) + # set colours for PSS grouping
+   xlab("ENIGMA Derived Brain Age Gap") +
+  ylab("BrainChart Centile Score") +
+  labs(colour = "", shape = "Non-zero QI_1")
+plot2
+# do not add labs(colour = "Diagnostic Group") because PSS is not actually a diagnoses, 
+
+# Based on the plots, there does not seem to be a clear trend because both PSS and Non-PSS participants have non-zero qi_1 values 
+
+#### Plot BAG vs centile grouped by sex and age_band panels ####
+
+# Scatter plot w/ annotations for participants with non-zero qi_1 values with a larger circle around
+plot_sex <- ggplot(data = brainage_final, aes(x = BAG, y = centile, shape = sex, colour = sex)) +
+  # set different shapes for PSS and Non-PSS
+       geom_point(aes(colour = sex)) + # assign colour by PSS grouping
+  geom_point(size = 2.5, shape = 1, data = nonzero_qi1, colour = "black") + # overlay larger black hollow circles around nonzero qi_1 values 
+  geom_smooth(method=lm, se = FALSE, linewidth = 0.5) +
+  # Add linear regression line that includes 95% confidence region by default
+ scale_y_continuous(limits = c(-0.25,1.25), expand = c(0,0)) +
+  # use scale_y_continuous to set the range of the y-axis, expand to add some padding to ensure no values are cut-off
+  theme_classic() +
+  facet_wrap(~age_band) +
+  scale_color_manual(values = c("Female" = colour_f, "Male" = colour_m)) + # set colours for PSS grouping
+   xlab("ENIGMA Derived Brain Age Gap") +
+  ylab("BrainChart Centile Score") + 
+  labs(colour = "Sex Assigned at Birth", shape = "")
+plot_sex
+
+#### Plot BAG vs centile grouped by dx w/ sex panels ####
+ggplot(data = brainage_final, aes(x = age_band, y = centile, colour = dx, shape = dx))+ 
+  geom_boxplot(position=position_dodge(width=0.9)) +
+  geom_point(position=position_jitterdodge(dodge.width=0.9)) +
+  geom_point(data = nonzero_qi1, colour = "red") +
+  # add geom_point() to overlay the points
+       theme_classic() +
+  facet_wrap(~sex) +
+  scale_color_manual(values = c("PSS" = colour_pss, "Non-PSS" = colour_non_pss)) + # set colours for PSS grouping
+   xlab("ENIGMA Derived Brain Age Gap") +
+  ylab("BrainChart Centile Score")
+```
+
+```{r Save ggplots}
+ggsave("centile_BAG_qi1_outline.png", plot = plot1, height = 5, width = 7, dpi = 800)
+
+ggsave("centile_BAG_qi1_filled.png", plot = plot2, height = 5, width = 7, dpi = 800)
+
+ggsave("centile_BAG_qi1_sex.png", plot = plot_sex, height = 5, width = 7, dpi = 800)
+```
+
+Plots annotated for extreme QI1 values 
+
+```{r Visualizing participants with QI1 < 0.5E-06}
+# Scatter plot w/ annotations for participants with non-zero qi_1 values with a larger circle around
+plot3 <- ggplot(data = brainage_final, aes(x = BAG, y = centile, shape = dx, colour = dx)) +
+  # set different shapes for PSS and Non-PSS
+       geom_point(aes(colour = dx)) + # assign colour by PSS grouping
+  geom_point(size = 2.5, shape = 1, data = extreme_qi1, colour = "red") + # overlay larger black hollow circles around nonzero qi_1 values 
+  geom_smooth(method=lm, se = FALSE, linewidth = 0.5) +
+  # Add linear regression line that includes 95% confidence region by default
+ scale_y_continuous(limits = c(-0.15,1.15), expand = c(0,0)) +
+  # use scale_y_continuous to set the range of the y-axis, expand to add some padding to ensure no values are cut-off
+  theme_classic() +
+  facet_wrap(~age_band) +
+  scale_color_manual(values = c("PSS" = colour_pss, "Non-PSS" = colour_non_pss)) + # set colours for PSS grouping
+   xlab("ENIGMA Derived Brain Age Gap") +
+  ylab("BrainChart Centile Score") + 
+  labs(colour = "", shape = "")
+plot3
+
+# alternate plot: overlay with non-zero qi_1 values FILLED IN w/ colour_qi_1
+plot4 <- ggplot(data = brainage_final, aes(x = BAG, y = centile, shape = dx, colour = dx)) +
+       geom_point(aes(colour = dx)) + 
+  geom_point(data = extreme_qi1, colour = colour_qi_extreme) + 
+  # annotate the nonzero qi_1 values by overlaying with a maroon colour
+  geom_smooth(method=lm, se = FALSE, linewidth = 0.5) +
+  # Add linear regression line that includes 95% confidence region by default
+ scale_y_continuous(limits = c(-0.15,1.15), expand = c(0,0)) +
+  # use scale_y_continuous to set the range of the y-axis, expand to add some padding to ensure no values are cut-off
+  theme_classic() +
+  facet_wrap(~age_band) +
+ scale_color_manual(values = c("PSS" = colour_pss, "Non-PSS" = colour_non_pss)) + # set colours for PSS grouping
+   xlab("ENIGMA Derived Brain Age Gap") +
+  ylab("BrainChart Centile Score") +
+  labs(colour = "", shape = "Non-zero QI_1")
+plot4
+
+```
+## Plots excluding extreme QI1
+Plotting the effect of excluding participants with QI1 > 0
+```{r Centile vs BAG grouped by dx excl nonzero qi_1}
+# Scatter plot w/ annotations for participants with non-zero qi_1 values with a larger circle around
+ggplot(data = zero_qi1, aes(x = BAG, y = centile, shape = dx, colour = dx)) +
+  # set different shapes for PSS and Non-PSS
+       geom_point(aes(colour = dx)) + # assign colour by PSS grouping
+  geom_smooth(method=lm, se = FALSE, linewidth = 0.5) +
+  # Add linear regression line that includes 95% confidence region by default
+ scale_y_continuous(limits = c(-0.15,1.15), expand = c(0,0)) +
+  # use scale_y_continuous to set the range of the y-axis, expand to add some padding to ensure no values are cut-off
+  theme_classic() +
+  facet_wrap(~age_band) +
+  scale_color_manual(values = c("PSS" = colour_pss, "Non-PSS" = colour_non_pss)) + # set colours for PSS grouping
+   xlab("ENIGMA Derived Brain Age Gap") +
+  ylab("BrainChart Centile Score") + 
+  labs(colour = "", shape = "")
+
+```
+```{r Centile vs BAG grouped by dx excl extreme qi_1}
+# Scatter plot w/ annotations for participants with qi_1 values ≥ 0.5E-04
+ggplot(data = mild_qi1, aes(x = BAG, y = centile, shape = dx, colour = dx)) +
+  # set different shapes for PSS and Non-PSS
+       geom_point(aes(colour = dx)) + # assign colour by PSS grouping
+  geom_smooth(method=lm, se = FALSE, linewidth = 0.5) +
+  # Add linear regression line that includes 95% confidence region by default
+ scale_y_continuous(limits = c(-0.15,1.15), expand = c(0,0)) +
+  # use scale_y_continuous to set the range of the y-axis, expand to add some padding to ensure no values are cut-off
+  theme_classic() +
+  facet_wrap(~age_band) +
+  scale_color_manual(values = c("PSS" = colour_pss, "Non-PSS" = colour_non_pss)) + # set colours for PSS grouping
+   xlab("ENIGMA Derived Brain Age Gap") +
+  ylab("BrainChart Centile Score") + 
+  labs(colour = "", shape = "")
+```
+```{r Placeholder}
+
+```
+
+
+## Linear models
+- Are the participants with non-zero qi_1 values driving the correlation between centile scores and brain age gap?
+```{r ANOVA linear models for centile scores}
+# apply linear model to mild_qi1
+lm_centile <- lm(centile ~ sex * dx * age_band, data = mild_qi1)
+
+aov(lm_centile) # perform ANOVA on the linear model
+plot(aov(lm_centile)) # verify assumptions (normal distribution, homoscedasticity, additivity)
+summary(aov(lm_centile)) # identify strength of interactions
+
+# age
+lm_centile_age <- lm(centile ~ sex * dx * Age, data = mild_qi1)
+aov(lm_centile_age)
+summary(aov(lm_centile_age))
+
+# dx: p = 0.0081 # this is LESS significant than the lm fitted that includes qi_1 values > 0.5E-04 (p = 0.00449)
+# Age: p = 0.0239 # same as above
+
+# in general it seems like removing the extreme qi_1 values dampens the correlation?
+
+```
+```{r ANOVA linear models for BAG fitted on mild_qi1}
+
+# apply linear model to mild_qi1 
+
+## age bands
+lm_BAG <- lm(BAG ~ sex * dx * age_band, data = mild_qi1)
+# figure out how to do the analysis by category - e.g., linear model for just the youngest age group or lm for the participants with 5+ total disorders
+aov(lm_BAG)
+summary(aov(lm_BAG))
+# sex: p = 0.000335 # less significant compared to when extreme qi_1 values are included (p= 0.000111) but the overall effect is negligible?
+# dx: p = 0.091722
+# age_band: p = 0.095071 # this is interesting b/c effect on age_band on BAG became MORE significant when extreme qi_1 were removed
+
+## scan age
+lm_age <- lm(BAG ~ sex * dx * Age, data = brainage_final)
+# figure out how to do the analysis by category - e.g., linear model for just the youngest age group or lm for the participants with 5+ total disorders
+aov(lm_age)
+summary(aov(lm_age))
+```
+
+```{r Correlation test for centile vs BAG w/o extreme qi_1}
+cor.test(mild_qi1$centile, mild_qi1$BAG, method = "pearson")
+# r = -0.6445957 (compared to -0.634 when including qi_1 > 0.5E-04)
+# Overall the extreme qi_1 values do not really affect the correlation
+
+cor.test(zero_qi1$centile, zero_qi1$BAG, method = "pearson")
+# r = -0.6385928
+```
+
+
+- Are the participants with non-zero qi_1 values driving the older brain age observed in males? 
+
