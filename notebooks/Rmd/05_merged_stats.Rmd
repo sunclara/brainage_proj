@@ -68,7 +68,14 @@ sub_263_T1w <- read_delim("/KIMEL/tigrlab/scratch/csun/brainage_proj/data/raw/gr
     trim_ws = TRUE)
 sub_263_T1w
 
+# load T1w tsv file from jwong for sub-CMH00000433 T1w
+sub_433_T1w <- read_delim("/KIMEL/tigrlab/scratch/jwong/mriqc_sub433/output/group_T1w.tsv",
+                          delim = "\t", escape_double = FALSE,
+                          trim_ws = TRUE)
+sub_433_T1w
 ```
+Comments on the qi_1 values: 
+- because subject 433 has a qi_1 value of 0, in the context of graphs and implications for subsequent analyses, this participant will not have much of an influence on results (we are mostly interested in participants with non-zero qi_1 values)
 
 ## Incorporate QA metrics
 Resource with tips and tricks for using the dplyr filter function: https://sebastiansauer.github.io/dplyr_filter/ 
@@ -80,7 +87,7 @@ group_T1w %>%
 # There are 49 entries of non-zero qi_1 values but some of these correspond to multiple runs for the same participant
 
 # filter for participants with multiple runs
-multi_run <- group_T1w %>%
+multi_run <- group_T1w %>% 
   select(bids_name, qi_1) %>% 
   filter(str_detect(bids_name, "run")) # filter for rows with multiple runs
 # There are 36 entries corresponding to participants with multiple runs, including some that have qi_1 values of zero for both runs.
@@ -97,7 +104,7 @@ group_T1w %>%
 write.csv(multi_run, "/KIMEL/tigrlab/scratch/csun/brainage_proj/data/raw/multi_run.csv", row.names = FALSE)
 ```
 
-Assumptions for removing and merging qi_1 values for participants with multiple runs -- double check with Erin and Jimmy
+Assumptions for removing and merging qi_1 values for participants with multiple runs -- double checked with Erin and Jimmy
 - If one of the runs is a blacklisted scan, remove it and keep the remaining scan
 - If one run is flagged while the other is approved, remove the flagged scan and keep the approved
 - If both runs are flagged, keep the run with the smaller qi_1 value (?)

@@ -31,6 +31,7 @@ brainage_final <- read_csv("/KIMEL/tigrlab/scratch/csun/brainage_proj/data/proce
 # brainage_final
 ```
 
+
 ## Inspect Data
 Resource: http://www.sthda.com/english/wiki/descriptive-statistics-and-graphics#summary-function
 ```{r Summary of the qi_1 variable}
@@ -43,14 +44,22 @@ IQR <- IQR(brainage_final$qi_1, na.rm = TRUE) # set na.rm = TRUE to remove NA's
 ```
 Based on these results, the range is 0 to 0.004482, mean is 0.000024, and median is 0. There is one participant (433) who is missing qi_1 value (shows up as NA). According to TAY QC dashboard, participant 433 has completed T1 scan.
 
+2023-07-24 update on the missing qi_1 value: after discussing with jwong and edickie, the qi_1 value for participant 433 was obtained (qi_1 = 0)
+
 ```{r Identify potential qi_1 outliers}
 # first filter out any NA values in qi_1 
-brainage_filtered <- brainage_final %>% filter(!is.na(qi_1))
+# brainage_filtered <- brainage_final %>% filter(!is.na(qi_1))
+
+# instead of filtering out the NA value, since we now know it is 0, replace the NA in the qi_1 column with 0
+brainage_final <- brainage_final %>% mutate(qi_1 = coalesce(qi_1, 0)) # use the coalesce() function to replace NA with zero in a specific numeric column
+brainage_final
+
+# Resource on replacing NA values: https://sparkbyexamples.com/r-programming/replace-na-values-with-zero-in-r-dataframe/
 
 # identify potential extreme values
-hist(brainage_filtered$qi_1)
-boxplot(brainage_filtered$qi_1)
-qqnorm(brainage_filtered$qi_1)
+hist(brainage_final$qi_1)
+boxplot(brainage_final$qi_1)
+qqnorm(brainage_final$qi_1)
 ```
 Plots do not really show much because most values are zero.
 
@@ -143,7 +152,10 @@ plot1 <- ggplot(data = brainage_final, aes(x = BAG, y = centile, shape = dx, col
    xlab("ENIGMA Derived Brain Age Gap") +
   ylab("BrainChart Centile Score") + 
   labs(colour = "", shape = "Non-zero QI_1") +
-  guides(shape = guide_legend(override.aes = list(size = 2.5, colour = "red", fill = "white"))) ### START HERE 
+  guides(shape = guide_legend(override.aes = list(shape = 1, size = 2.5, colour = "red"))) +
+  # use guide_legend to override the default figure legend settings
+  guides(colour = guide_legend(data = brainage_final, override.aes = list(shape = c(16,17)))) 
+# only modify the shape of legend for colour (aka PSS grouping) so that PSS is represented as triangles and Non-PSS as circles
 plot1
 
 # alternate plot: overlay with non-zero qi_1 values FILLED IN w/ colour_qi_1

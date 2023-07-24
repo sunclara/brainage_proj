@@ -1,0 +1,51 @@
+---
+title: "T1w Image Quality Metrics Analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load libraries
+
+```{r Set up - Load libraries}
+library(tidyverse)
+library(dplyr)
+library(ggplot)
+```
+
+## Load data
+
+We will be working with four T1w image quality metrics (IQM) calculated from MRIQC for structural MRI data:
+1. CJV = coefficient of joint variation (cjv)
+2. SNRD = Dietrich's signal-to-noise ratio, total (snrd_total)
+3. EFC = entropy focus criterion (efc)
+4. FBER = foreground-to-background energy ratio (fber)
+5.
+
+*Reference TAY Cohort Project 3 Protocol Paper for more information on how the data was obtained
+*See Supplemental Figure 5 from the protocol paper "T1w quality Metrics (from MRIQC)" which includes signal to noise, FWHM, FBER, CJV
+
+```{r Set up - Load csv/tsv files as data frames}
+
+```
+
+## Tidy data in preparation for PCA
+```{r}
+
+```
+
+
+## Data exploration 
+```{r}
+# check if each IQM is normally distributed using histograms
+
+```
+
+
+## Principal Component Analysis
+```{r}
+
+```
+
