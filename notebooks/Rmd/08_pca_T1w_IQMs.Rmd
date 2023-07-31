@@ -12,40 +12,243 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r Set up - Load libraries}
 library(tidyverse)
 library(dplyr)
-library(ggplot)
+library(ggplot2)
+library(ggcorrplot)
 ```
 
 ## Load data
 
 We will be working with four T1w image quality metrics (IQM) calculated from MRIQC for structural MRI data:
-1. CJV = coefficient of joint variation (cjv)
-2. SNRD = Dietrich's signal-to-noise ratio, total (snrd_total)
-3. EFC = entropy focus criterion (efc)
-4. FBER = foreground-to-background energy ratio (fber)
-5.
+1. CJV = coefficient of joint variation (cjv) - lower better
+2. SNRD = Dietrich's signal-to-noise ratio, total (snrd_total) - higher better
+3. EFC = entropy focus criterion (efc) - lower better
+4. FBER = foreground-to-background energy ratio (fber) - higher better
+5. FWHM = full-width, half-maximum (fwhm_avg)
 
 *Reference TAY Cohort Project 3 Protocol Paper for more information on how the data was obtained
 *See Supplemental Figure 5 from the protocol paper "T1w quality Metrics (from MRIQC)" which includes signal to noise, FWHM, FBER, CJV
 
-```{r Set up - Load csv/tsv files as data frames}
+```{r Set up - Load csv and tsv files as data frames}
+# Set up code modified from 06_mri_qi1_effects.Rmd and 05_merged_stats.Rmd
+
+# brainage_final includes participants' demographic info and brain age outputs from ENIGMA and BrainChart
+brainage_final <- read_csv("/KIMEL/tigrlab/scratch/csun/brainage_proj/data/processed/brainage_final.csv")
+# brainage_final
+
+# update participant 433's qi_1 value
+brainage_final <- brainage_final %>% mutate(qi_1 = coalesce(qi_1, 0)) # use the coalesce() function to replace NA with zero in a specific numeric column
+brainage_final
+
+# group_T1w contains T1w image quality metrics (IQMs)
+group_T1w <- read_delim("/external/rprshnas01/tigrlab/archive/data/TAY/pipelines/versioned_outputs/baseline_only/mriqc/group_T1w.tsv", 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+group_T1w
+
+# participant 433's IQMs
+sub_433_T1w <- read_delim("/KIMEL/tigrlab/scratch/jwong/mriqc_sub433/output/group_T1w.tsv", delim = "\t", escape_double = FALSE, trim_ws = TRUE)
+
+# append participant 433's T1w IQMs to end of group_T1w df
+group_T1w_full <- rbind(group_T1w, sub_433_T1w)
 
 ```
+Resource on appending data to a data frame: https://www.statology.org/r-append-to-data-frame/
 
 ## Tidy data in preparation for PCA
-```{r}
+Merge multiple runs based on same criteria applied to qi_1 analyses (see "Incorporate QA metrics" in 05_merged_stats.Rmd)
+
+Assumptions for removing and merging qi_1 values for participants with multiple runs, double checked with Erin and Jimmy
+- If one of the runs is a blacklisted scan, remove it and keep the remaining scan
+- If one run is flagged while the other is approved, remove the flagged scan and keep the approved
+- If both runs are flagged, keep the run with the smaller qi_1 value
+- If both runs have qi_1 value of 0, merge and keep the qi_1 value at 0
+
+```{r Merge participants with multiple runs}
+# Merging multiple runs by qi_1 data
+#### remove qi_1 values for blacklisted scans ####
+blacklist <- c("sub-CMH00000218_ses-01_run-01_T1w", "sub-CMH00000224_ses-01_run-02_T1w", "sub-CMH00000283_ses-01_run-01_T1w", "sub-CMH00000421_ses-01_run-01_T1w", "sub-CMH00000466_ses-01_run-01_T1w")
+class(blacklist)
+
+# note we are using group_T1w_full which includes appended participant 433
+blacklist_T1 <- group_T1w_full[group_T1w_full$bids_name %in% c("sub-CMH00000218_ses-01_run-01_T1w", "sub-CMH00000224_ses-01_run-02_T1w", "sub-CMH00000283_ses-01_run-01_T1w", "sub-CMH00000421_ses-01_run-01_T1w", "sub-CMH00000466_ses-01_run-01_T1w"), ]
+blacklist_T1
+
+#### remove qi_1 values for flagged runs ####
+# includes flagged runs that are paired with an approved run and flagged runs with larger qi_1 
+flagged_T1 <- group_T1w_full[group_T1w_full$bids_name %in% c("sub-CMH00000062_ses-01_run-02_T1w", "sub-CMH00000150_ses-01_run-01_T1w", "sub-CMH00000192_ses-01_run-01_T1w", "sub-CMH00000263_ses-01_run-01_T1w", "sub-CMH00000360_ses-01_run-01_T1w", "sub-CMH00000361_ses-01_run-01_T1w", "sub-CMH00000369_ses-01_run-01_T1w"), ]
+flagged_T1
+
+#### runs that both have qi_1 values of 0 ####
+# delete one of the rows, choose the one that is flagged if the other is approved 
+final_filter <- group_T1w_full[group_T1w_full$bids_name %in% c("sub-CMH00000019_ses-01_run-02_T1w","sub-CMH00000039_ses-01_run-02_T1w", "sub-CMH00000056_ses-01_run-01_T1w", "sub-CMH00000270_ses-01_run-01_T1w", "sub-CMH00000287_ses-01_run-01_T1w", "sub-CMH00000435_ses-01_run-01_T1w" ), ]
+final_filter
+
+#### remove subsetted data frames ####
+# remove the subsetted blacklist data frame using the anti_join function
+filtered_T1 <- anti_join(group_T1w_full, blacklist_T1, by = "bids_name")
+filtered_T1
+
+# remove the subsetted flagged data frame using the anti_join function
+extra_filtered_T1 <- anti_join(filtered_T1, flagged_T1, by = "bids_name") %>% select(bids_name, qi_1, cjv, cnr, efc, fber, fwhm_avg, snrd_total)
+extra_filtered_T1
+
+#remove the subsetted flagged data frame using the anti_join function
+final_filtered_T1 <- anti_join(extra_filtered_T1, final_filter, by = "bids_name") %>% select(bids_name, qi_1, cjv, cnr, efc, fber, fwhm_avg, snrd_total)
+final_filtered_T1
+
+# rename bids_name column "participant" and string format to match brainage_final
+# remove "_run-01"
+final_filtered_T1$bids_name <- gsub("_run-01", "", final_filtered_T1$bids_name) 
+# remove "_run-02"
+final_filtered_T1$bids_name <- gsub("_run-02", "", final_filtered_T1$bids_name) 
+# remove '_ses-01_T1w' string ending and rename 'bids_name' column 
+final_filtered_T1 <- final_filtered_T1 %>%
+  mutate(participant = str_replace(bids_name, "_ses-01_T1w", "")) %>%
+  select(-bids_name) %>%
+  relocate(participant, .before = qi_1)
+final_filtered_T1
+
+# save the filtered data frame as csv 
+write.csv(final_filtered_T1, "/KIMEL/tigrlab/scratch/csun/brainage_proj/data/processed/T1w_quality_metrics.csv", row.names = FALSE)
 
 ```
 
+
+
+```{r Merge IQM df and brain age df}
+
+# Append MRIQC quality metrics df to brain age data frame
+brainage_final_iqms <- merge(
+  brainage_final, final_filtered_T1[c('participant', 'cjv', 'cnr', 'efc', 'fber', 'fwhm_avg', 'snrd_total')], by ='participant', all.x = TRUE)
+brainage_final_iqms
+
+```
+
+The new brainage_final_iqms data frame includes all demographic data, brain age outputs from ENIGMA and BrainChart, and MRIQC image quality metrics.
+
+1. CJV = coefficient of joint variation (cjv)
+2. SNRD = Dietrich's signal-to-noise ratio, total (snrd_total)
+3. EFC = entropy focus criterion (efc)
+4. FBER = foreground-to-background energy ratio (fber)
+5. FWHM = full-width, half-maximum (fwhm_avg)
 
 ## Data exploration 
-```{r}
+```{r Visualize distribution of each IQM}
 # check if each IQM is normally distributed using histograms
 
+# coefficient of joint variation
+hist(final_filtered_T1$cjv)
+
+# Dietrich's signal-to-noise ratio, total
+hist(final_filtered_T1$snrd_total)
+
+# entropy focus criterion
+hist(final_filtered_T1$efc)
+
+# foreground-to-background energy ratio
+hist(final_filtered_T1$fber)
+
+# full-width, half maximum
+hist(final_filtered_T1$fwhm_avg)
 ```
 
+## Correlation Matrix
+Compute a correlation matrix for PCA based on code included the "Correlation Matrix" section in 07_corr_and_pca.Rmd
+
+```{r Calculating correlation matrix}
+# first check for NAs
+which(is.na(final_filtered_T1))
+sum(is.na(final_filtered_T1)) # there are no NAs in this df
+
+# subset final_filtered_T1 to only include numeric columns i.e., remove 'participant' column
+T1w_iqms_num <- final_filtered_T1 %>% 
+  select(where(is.numeric)) %>%
+  select(-qi_1)
+
+# Compute a matrix of Pearson correlation coefficients
+corr <- round(cor(T1w_iqms_num), 3) # round to 3 decimal places
+corr
+# view first 6 rows of the correlation matrix
+head(corr[, 1:6])
+
+```
+```{r Compute a matrix of correlation p-values}
+p_mat <- cor_pmat(T1w_iqms_num)
+p_mat
+
+```
+
+## Correlation Matrix Visualization
+```{r Visualize the correlation matrix of correlation coefficients}
+# use the default "square" method
+ggcorrplot(corr)
+
+# reorder the correlation matrix using hierarchical clustering
+ggcorrplot(corr, hc.order = TRUE, outline.col = "white")
+
+# add correlation coefficients with argument lab = TRUE
+ggcorrplot(corr, hc.order = TRUE, type = "lower", lab = TRUE)
+```
+
+Observations from correlation matrix of 6 image quality metrics:
+- IQMs where higher values are better (indicate higher quality scans) are positively correlated as expected: snrd_total and fber
+- interesting relationship between efc and cjv -> expect positive correlation but observe negative correlation (?)
+- strong negative correlation between cnr and cjv, this is consistent with the fact that higher values of cnr are better, and lower values of cjv are better
 
 ## Principal Component Analysis
-```{r}
+```{r PCA eligibility}
+# unsupervised learning - explore data without labels
+
+# check PCA eligibility 
+# are the variables highly correlated? (linearly dependent or not)
+# correlation matrix to check for degree of correlation, assuming high degree of correlation if r > 0.3 or r < -0.3
+
+# average correlation among the variables
+mean(corr) # mean for correlation of all variables is 0.2173889
+```
+NOTE: the PCA below may not be valid, need to double check eligibility requirements above
+
+```{r Conduct PCA}
+pca <- princomp(T1w_iqms_num) 
+```
+
+## Evaluating PCA
+
+- remember: the number of components is always equal to the number of variables 
+Two ways to evaluate PCA
+1. Check whether principal components (PCs) capture the essence of the original variable
+2. Check whether PCs are independent
+- Resource: https://youtu.be/jFN4qkSOd4I
+
+```{r Inspect PCA loadings}
+# inspect contents of pca
+pca$loadings
+pca$loadings[,1:4] # focus on the first 4 components
+```
+
+```{r Check for independence among principal components}
+# PCs are considered independent if the correlation among PCs is approximately 0
+pc <- pca$scores # first create an object with scores
+
+# compare correlation scores for PCs
+cor(pc) 
 
 ```
 
+```{r Visualization of the principal component}
+#### Scree plot ####
+
+# calculate total variance explained by each principal component
+var_explained = pca$sdev^2 / sum(pca$sdev^2)
+var_explained
+
+qplot(c(1:6), var_explained) +
+  geom_line() +
+  # geom_bar() +
+  xlab("Principal Component") + 
+  ylab("Variance Explained") +
+  ggtitle("Scree Plot") +
+  ylim(0,1)
+
+```
+Based on the screen plot, it looks like only the first principal component (PC1) is responsible for explaining the major of the variance

@@ -1,6 +1,8 @@
 ---
 title: "Merging BrainChart and ENIGMA outputs"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -43,19 +45,13 @@ centiles_final <- read_csv("/KIMEL/tigrlab/scratch/csun/BrainChart_data/data/pro
 # Note the version of total disorder groupings used in centiles_final (0-1, 2-3, 4+) 
 
 # Load csv with enigma csv with ASD diagnoses appended
-enigma_ASD <- read_csv("/external/rprshnas01/tigrlab/scratch/csun/brainage_proj/data/processed/enigma_ASD.csv")
+enigma_ASD <- read_csv("/external/rprshnas01/tigrlab/scratch/csun/brainage_proj/data/processed/enigma_ASD.csv") 
 
 # load group_T1w.tsv 
 group_T1w <- read_delim("/external/rprshnas01/tigrlab/archive/data/TAY/pipelines/versioned_outputs/baseline_only/mriqc/group_T1w.tsv", 
     delim = "\t", escape_double = FALSE, 
     trim_ws = TRUE)
 group_T1w
-
-# load group_bold.tsv
-group_bold <- read_delim("/external/rprshnas01/tigrlab/archive/data/TAY/pipelines/versioned_outputs/baseline_only/mriqc/group_bold.tsv", 
-    delim = "\t", escape_double = FALSE, 
-    trim_ws = TRUE)
-group_bold
 
 # load mriqc QA data for participants included in the protocol paper
 # this version of QA data is for reference only, group_T1w contains a more recent version of qi_1 values (i.e., more participants are included)
@@ -69,10 +65,17 @@ sub_263_T1w <- read_delim("/KIMEL/tigrlab/scratch/csun/brainage_proj/data/raw/gr
 sub_263_T1w
 
 # load T1w tsv file from jwong for sub-CMH00000433 T1w
-sub_433_T1w <- read_delim("/KIMEL/tigrlab/scratch/jwong/mriqc_sub433/output/group_T1w.tsv",
-                          delim = "\t", escape_double = FALSE,
-                          trim_ws = TRUE)
+sub_433_T1w <- read_delim("/KIMEL/tigrlab/scratch/jwong/mriqc_sub433/output/group_T1w.tsv", delim = "\t", escape_double = FALSE, trim_ws = TRUE)
 sub_433_T1w
+
+# append participant 433's T1w IQMs to end of group_T1w df
+group_T1w <- rbind(group_T1w, sub_433_T1w)
+
+# load group_bold.tsv - NOT NECESSARY for T1w IQMs
+group_bold <- read_delim("/external/rprshnas01/tigrlab/archive/data/TAY/pipelines/versioned_outputs/baseline_only/mriqc/group_bold.tsv", 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+group_bold
 ```
 Comments on the qi_1 values: 
 - because subject 433 has a qi_1 value of 0, in the context of graphs and implications for subsequent analyses, this participant will not have much of an influence on results (we are mostly interested in participants with non-zero qi_1 values)
@@ -293,8 +296,10 @@ colour_f <- "#CC79A7" # pink
 colour_m <- "#56B4E9" # light blue
 
 # set colours for PSS and Non-PSS 
-colour_pss <- "#702A8C" # purple 
-colour_non_pss <- "#FFC154" # orange
+# colour_pss <- "#702A8C" # purple 
+colour_pss <- "#6E298D" # CAMH purple
+# colour_non_pss <- "#FFC154" # orange
+colour_non_pss <- "#FFB652" # CAMH golden yellow
 
 # set colours for ASD 
 colour_ASD <- "#6B3E2E" # brown
@@ -310,9 +315,9 @@ colour_qi_extreme <- "#AF4154" # maroon for QI1 values > 0.05e-04
 ```{r BAG vs centile scores grouped by PSS grouping}
 
 # plot BAG vs centile scores grouped by PSS and Non-PSS
-ggplot(data = brainage_final, aes(x = BAG, y = centile, colour = dx)) +
-       geom_point(shape = 1) + # Use hollow circles
-  geom_smooth(method=lm) +
+ggplot(data = brainage_final, aes(x = BAG, y = centile, colour = dx, shape = dx)) +
+       geom_point(aes(colour = dx)) + # set the colour based on PSS/Non-PSS
+  geom_smooth(method=lm, linewidth = 0.5) +
   # Add linear regression line that includes 95% confidence region by default
  scale_y_continuous(limits = c(-0.2,1.2), expand = c(0.05,0)) +
   # use scale_y_continuous to set the range of the y-axis, expand to add some padding to ensure no values are cut-off
@@ -320,7 +325,9 @@ ggplot(data = brainage_final, aes(x = BAG, y = centile, colour = dx)) +
   facet_wrap(~age_band) +
   scale_color_manual(values = c("PSS" = colour_pss, "Non-PSS" = colour_non_pss)) + # set colours for PSS grouping
    xlab("ENIGMA Derived Brain Age Gap") +
-  ylab("BrainChart Centile Score")
+  ylab("BrainChart Centile Score") +
+  labs(colour = "") + 
+   guides(colour = guide_legend(data = brainage_final, override.aes = list(shape = c(16,17)))) 
 
 ```
 
@@ -332,15 +339,49 @@ male_colour <- "#007ED6" # Blue
 # plot BAG vs centile scores grouped by sex
 ggplot(data = brainage_final, aes(x = BAG, y = centile, colour = sex)) +
        geom_point(shape = 1) + # Use hollow circles
-  geom_smooth(method=lm) +
+  geom_smooth(method=lm, linewidth = 0.5) +
   # Add linear regression line that includes 95% confidence region by default
-  scale_y_continuous(limits = c(0,1), expand = c(0,0)) +
+  scale_y_continuous(limits = c(-0.15,1.15), expand = c(0,0)) +
   # use scale_y_continuous to set the range of the y-axis
   theme_classic() +
   facet_wrap(~age_band) +
    scale_colour_manual(values = c("Male" = colour_m, "Female" = colour_f)) + # set colours for sex
    xlab("ENIGMA Derived Brain Age Gap") +
-  ylab("BrainChart Centile Score")
+  ylab("BrainChart Centile Score") +
+  labs(colour = "Sex Assigned at Birth")
+```
+
+```{r BrainAGE vs centile scores grouped by age band and sex and dx}
+# plot BAG vs centile scores grouped by age band, sex, and PSS
+ggplot(data = brainage_final, aes(x = BAG, y = centile, colour = sex, shape = dx)) +
+       geom_point(aes(colour = sex, shape = dx)) + # try setting the shape to represent PSS and Non-PSS
+  geom_smooth(method=lm, se = FALSE, linewidth = 0.5) + # remove standard error shading using se = FALSE
+  # Add linear regression line that includes 95% confidence region by default
+  scale_y_continuous(limits = c(-0.25,1.2), expand = c(0,0)) +
+  # use scale_y_continuous to set the range of the y-axis
+  theme_classic() +
+  facet_wrap(~age_band) +
+   scale_colour_manual(values = c("Male" = colour_m, "Female" = colour_f)) + # set colours for sex
+   xlab("ENIGMA Derived BrainAGE") +
+  ylab("BrainChart Centile Score") +
+  labs(colour = "Sex Assigned at Birth")
+```
+
+```{r BrainAGE vs centile scores grouped by sex and PSS Non-PSS}
+
+# plot BrainAGE vs centile scores grouped by PSS and facet wrap by sex
+ggplot(data = brainage_final, aes(x = BAG, y = centile, colour = dx, shape = dx)) +
+       geom_point(aes(colour = dx, shape = dx)) + # try setting the shape to represent PSS and Non-PSS
+  geom_smooth(method=lm, linewidth = 0.5) + # remove standard error shading using se = FALSE
+  # Add linear regression line that includes 95% confidence region by default
+  scale_y_continuous(limits = c(-0.35,1.2), expand = c(0,0)) +
+  # use scale_y_continuous to set the range of the y-axis
+  theme_classic() +
+  facet_wrap(~sex) +
+   scale_colour_manual(values = c("PSS" = colour_pss, "Non-PSS" = colour_non_pss)) + # set colours for PSS/Non-PSS
+   xlab("ENIGMA Derived BrainAGE") +
+  ylab("BrainChart Centile Score") +
+  labs(colour = "", shape = "")
 ```
 
 
@@ -643,11 +684,159 @@ aov(lm_total_dx_grp)
 summary(aov(lm_total_dx_grp))
 ```
 
-## Extra analysis
-```{r Additional analyses}
+```{r chi-square test comparing proportion of male and female sex by age band}
+
+#### Method 1: identifying differences across ALL age bands ####
+# Note: this is not the most accurate method b/c it does not account for differences in sample size (e.g., more females than males)
+# convert sex, age_band to factors
+# age_band: 11-14, 15-17, 18-21, 21+
+brainage_final$age_band <- as.factor(brainage_final$age_band)
+# sex: Female, Male
+brainage_final$sex <- as.factor(brainage_final$sex)
+brainage_final
+
+# Create a contingency table of 'sex' and 'age_band'
+contingency_table <- table(brainage_final$sex, brainage_final$age_band)
+contingency_table # there are more than 5 participants per group so chi-square test assumptions are met
+
+# perform the chi-square test
+result <- chisq.test(contingency_table)
+
+# print the result
+print(result)
+
+#### Method 2: ANOVA for proportion sex and age band ####
+
+# calculate the total number of participants in each age band
+total_by_age_band <- aggregate(list(TotalParticipants = brainage_final$sex), by = list(brainage_final$age_band), length)
+
+# calculate the number of male participants in each age band
+male_by_age_band <- aggregate(list(MaleParticipants = brainage_final$sex[brainage_final$sex == "Male"]), by = list(brainage_final$age_band[brainage_final$sex == "Male"]), length)
+
+# calculate the proportion of males
+prop_by_age_band_male <- merge(total_by_age_band, male_by_age_band, by = "Group.1", all.x = TRUE)
+prop_by_age_band_male$ProportionMale <- prop_by_age_band_male$MaleParticipants / prop_by_age_band_male$TotalParticipants
+
+# Print the results
+print(prop_by_age_band_male)
+
+# load csv with proportions for each sex calculated based on total number of participants of that sex - this is different from the proportions calculated based on total # for each age band
+chi_sq_df <- read_csv("/KIMEL/tigrlab/scratch/csun/brainage_proj/data/raw/chi_square.csv")
+chi_sq_df
+
+# Perform ANOVA to
+# convert sex, age_band to factors
+# age_band: 11-14, 15-17, 18-21, 21+
+chi_sq_df$age_band <- as.factor(chi_sq_df$age_band)
+# sex: Female, Male
+chi_sq_df$sex <- as.factor(chi_sq_df$sex)
+chi_sq_df
+
+# perform ANOVA test
+result_prop_by_sex <- aov(prop ~ age_band * sex, data = chi_sq_df)
+print(result_prop_by_sex)
+summary(result_prop_by_sex)
+
+```
+Based on Pearson's Chi-squared test, there is a significant difference in the proportion of male vs female participants across age bands (p=0.01527, X-squared = 10.426)
+
+```{r chi square test PSS grouping vs age_band}
+# convert sex, age_band to factors
+# age_band: 11-14, 15-17, 18-21, 21+
+brainage_final$age_band <- as.factor(brainage_final$age_band)
+# dx (aka PSS grouping): PSS, Non-PSS
+brainage_final$dx <- as.factor(brainage_final$dx)
+brainage_final
+
+# Create a contingency table of 'sex' and 'age_band'
+contingency_table_dx <- table(brainage_final$dx, brainage_final$age_band)
+contingency_table_dx # there are more than 5 participants per group so chi-square test assumptions are met
+
+# perform the chi-square test
+result2 <- chisq.test(contingency_table_dx)
+
+# print the result
+print(result2)
+
+```
+There are no significant differences (p=0.7243) in the proportion of participants with and without PSS across the age bands.
+
+## Extra analyses
+```{r Additional analyses for age}
 mean(brainage_final$Age) # 18.47
 mean(brainage_final$age_prediction) # 19.73
 ```
 
 
-```{r Additional analyses}
+```{r Additional sex based analyses - female}
+#### Correlation between centile score and BrainAGE ####
+cor.test(brainage_female$centile, brainage_female$BAG, method = "pearson")
+# r = -0.7026, p<0.001
+
+# print the actual p-value 
+cor.test(brainage_female$centile, brainage_female$BAG, method = "pearson")$p.value
+
+#### t-test comparing centile score vs PSS grouping ####
+# need to set categorical variables as two-level factor before conducting t tests
+# sex: Female
+brainage_female$sex <- as.factor(brainage_female$sex)
+# dx: PSS, Non-PSS
+brainage_female$dx <- as.factor(brainage_female$dx)
+
+# centile and PSS/Non-PSS
+t.test(centile ~ dx, alternative = "two.sided", data = brainage_female)
+# PSS=0.4301038, Non-PSS=0.5398383, p-value=0.005686
+```
+The correlation between BrainChart centile score and ENIGMA BrainAGE for females is -0.7026 (p < 2.2e-16) based on Pearson's correlation test.
+
+Females with PSS have significantly lower BrainChart centile scores (mu=0.430, p=0.006) compared to females without PSS (mu=0.540).
+
+```{r Additional sex based analyses - males}
+#### Correlation between centile score and BrainAGE ####
+cor.test(brainage_male$centile, brainage_male$BAG, method = "pearson")
+# r = -0.619, p=1.641e-10
+
+# print the actual p-value 
+cor.test(brainage_male$centile, brainage_male$BAG, method = "pearson")$p.value
+
+#### t-test comparing centile score vs PSS grouping ####
+# need to set categorical variables as two-level factor before conducting t tests
+# sex: male
+brainage_male$sex <- as.factor(brainage_male$sex)
+# dx: PSS, Non-PSS
+brainage_male$dx <- as.factor(brainage_male$dx)
+
+# centile and PSS/Non-PSS
+t.test(centile ~ dx, alternative = "two.sided", data = brainage_male)
+# PSS=0.564, Non-PSS=0.499, p-value=0.313
+
+```
+The correlation between BrainChart centile score and ENIGMA BrainAGE for males is -0.619 (p=1.641e-10) based on Pearson's correlation test.
+
+Males with PSS had lower centile scores on average (mu=0.499) than those without PSS (mu=0.564); however, this difference was not significant.
+
+
+```{r testing Citrix}
+# number of individuals with and without PSS
+
+# install.packages("psych")
+library(psych)
+describe(brainage_final)
+# display summary statistics table for female participants 
+describe(brainage_female)
+# display summary statistics table for male participants 
+describe(brainage_male)
+
+```
+
+
+```{r testing Citrix 2}
+print("hello")
+# hi it's me
+# hello from the other side
+# testing 123 now it is lagging
+# still here
+# saying hello from the corner of Gerstein 2nd floor
+# still here - met the caretaker cleaning the women's bathroom, seemed friendly
+# testing 
+# 123
